@@ -32,26 +32,31 @@
 #         cmd: "pacman -U --noconfirm {{ paru_pkg.files[0].path }}"
 #       become: true
 
-- name: Ensure Paru is installed
-  kewlfft.aur.aur:
-    name: paru
-    state: present
-  become: true
-  become_user: aur_builder
+- name: Install AUR Packages
+  block:
+    - name: Ensure Paru is installed
+      kewlfft.aur.aur:
+        name: paru
+        state: present
+      become: true
+      become_user: aur_builder
 
-- name: Update all AUR packages (including Paru itself)
-  kewlfft.aur.aur:
-    upgrade: true
-    aur_only: true
-    use: paru
-  become: true
-  become_user: aur_builder
+    - name: Update all AUR packages (including Paru itself)
+      kewlfft.aur.aur:
+        upgrade: true
+        aur_only: true
+        use: paru
+      become: true
+      become_user: aur_builder
 
-- name: Install AUR packages using
-  kewlfft.aur.aur:
-    name:
-      - brave-bin
-    state: present
-    use: paru
-  become: true
-  become_user: aur_builder
+    - name: Install AUR packages
+      kewlfft.aur.aur:
+        name: "{{ aur_packages }}"
+        state: present
+        use: paru
+      become: true
+      become_user: aur_builder
+  rescue:
+    - name: AUR installation failed
+      ansible.builtin.fail:
+        msg: "AUR installation failed. Check the error above and ensure aur_builder user has network access."

@@ -1,39 +1,12 @@
 - name: Install Hyprland Ecosystem
   community.general.pacman:
-    name:
-      - starship
-      - zsh
-      - hyprland
-      - kitty
-      - ghostty
-      - firefox
-      - xdg-utils
-      - waybar
-      - npm
-      - wofi
-      - swww
-      - mako
-      - grim
-      - slurp
-      - wl-clipboard
-      - pavucontrol
-      - nm-connection-editor
-      - xdg-desktop-portal-hyprland
-      - xdg-desktop-portal-gtk
-      - qt5-wayland
-      - qt6-wayland
-      - polkit-kde-agent
-      - ttf-jetbrains-mono-nerd
-      - ttf-font-awesome
+    name: "{{ desktop_packages }}"
     state: present
   become: true
 
 - name: Install Audio Stack (PipeWire)
   community.general.pacman:
-    name:
-      - pipewire
-      - pipewire-pulse
-      - wireplumber
+    name: "{{ audio_packages }}"
     state: present
   become: true
 

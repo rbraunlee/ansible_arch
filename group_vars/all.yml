@@ -1,0 +1,82 @@
+---
+# User configuration
+username: "{{ ansible_user | default('rbl') }}"
+
+# Bootloader configuration
+limine_conf_path: "/boot/limine/limine.conf"
+
+# Dotfiles configuration
+dotfiles:
+  repo: "https://github.com/BraunRudolf/.dotfiles.git"
+  dest: "/home/{{ username }}/.dotfiles"
+  subdirs:
+    - common
+    - linux
+
+# AUR packages (add more as needed)
+aur_packages:
+  - brave-bin
+
+# Desktop environment packages
+desktop_packages:
+  - starship
+  - zsh
+  - hyprland
+  - kitty
+  - ghostty
+  - firefox
+  - xdg-utils
+  - waybar
+  - npm
+  - wofi
+  - swww
+  - mako
+  - grim
+  - slurp
+  - wl-clipboard
+  - pavucontrol
+  - nm-connection-editor
+  - xdg-desktop-portal-hyprland
+  - xdg-desktop-portal-gtk
+  - qt5-wayland
+  - qt6-wayland
+  - polkit-kde-agent
+  - ttf-jetbrains-mono-nerd
+  - ttf-font-awesome
+
+# Audio stack packages
+audio_packages:
+  - pipewire
+  - pipewire-pulse
+  - wireplumber
+
+# System packages
+system_packages:
+  - python-pexpect
+  - base-devel
+  - acl
+  - linux-zen
+  - linux-zen-headers
+  - linux-lts
+  - linux-lts-headers
+  - git
+  - rust
+  - snapper
+  - snap-pac
+  - ufw
+  - iwd
+  - bluez
+  - bluez-utils
+
+# NVIDIA packages
+nvidia_packages:
+  - nvidia-dkms
+  - nvidia-utils
+  - libva-nvidia-driver
+  - nvidia-settings
+
+# Services to enable and start
+enable_services:
+  - NetworkManager
+  - bluetooth
+  - ufw

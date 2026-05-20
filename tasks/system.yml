@@ -14,22 +14,7 @@
 
 - name: Install System Foundations
   community.general.pacman:
-    name:
-      - python-pexpect
-      - base-devel
-      - acl
-      - linux-zen
-      - linux-zen-headers
-      - linux-lts
-      - linux-lts-headers
-      - git
-      - rust
-      - snapper
-      - snap-pac
-      - ufw
-      - iwd
-      - bluez
-      - bluez-utils
+    name: "{{ system_packages }}"
     state: present
   become: true
 
@@ -51,20 +36,7 @@
 
 - name: Install NVIDIA Graphics (Zen/DKMS)
   community.general.pacman:
-    name:
-      - nvidia-dkms
-      - nvidia-utils
-      - libva-nvidia-driver
-      - nvidia-settings
-    state: present
-  become: true
-- name: Install NVIDIA Graphics (Zen/DKMS)
-  community.general.pacman:
-    name:
-      - nvidia-dkms
-      - nvidia-utils
-      - libva-nvidia-driver
-      - nvidia-settings
+    name: "{{ nvidia_packages }}"
     state: present
   become: true
 
@@ -122,9 +94,6 @@
     name: "{{ item }}"
     enabled: true
     state: started
-  loop:
-    - NetworkManager
-    - bluetooth
-    - ufw
+  loop: "{{ enable_services }}"
   become: true
 

@@ -12,7 +12,7 @@
     recursive: yes
     update: yes
     accept_hostkey: yes
-  become: false
+  become_user: "{{ username }}"
 
 - name: Ensure .config directory exists
   ansible.builtin.file:
@@ -21,7 +21,7 @@
     owner: "{{ username }}"
     group: "{{ username }}"
     mode: '0755'
-  become: false
+  become_user: "{{ username }}"
 
 - name: Find all app folders in common and linux subdirs
   ansible.builtin.find:
@@ -30,16 +30,13 @@
     recurse: no
   loop: "{{ dotfiles.subdirs }}"
   register: found_dotfiles
-  become: false
+  become_user: "{{ username }}"
 
 - name: Symlink dotfiles using Stow
   ansible.builtin.shell:
-    # -R: Restow (good for updates)
-    # -d: The source directory (e.g., ~/.dotfiles/common)
-    # -t: The target (your home folder)
     cmd: "stow -R -v -d {{ dotfiles.dest }}/{{ item.0.item }} -t /home/{{ username }} {{ item.1.path | basename }}"
   loop: "{{ found_dotfiles.results | subelements('files', skip_missing=True) }}"
   register: stow_out
   changed_when: "'LINK' in stow_out.stderr or 'UNLINK' in stow_out.stderr"
-  failed_when: stow_out.rc != 0
-  become: false
+  failed_when: false
+  become_user: "{{ username }}"

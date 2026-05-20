@@ -5,5 +5,8 @@
 
 - name: Install Zap plugin manager
   ansible.builtin.shell:
-    cmd: "zsh <(curl -s https://raw.githubusercontent.com/zap-zsh/zap/master/install.zsh) --keep"
+    cmd: "curl -s https://raw.githubusercontent.com/zap-zsh/zap/master/install.zsh | zsh"
+  register: zap_install
+  changed_when: "'Zap installed' in zap_install.stdout or 'Zap installed' in zap_install.stderr"
+  failed_when: false
   when: not zap_check.stat.exists

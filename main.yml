@@ -4,15 +4,7 @@
   connection: local
 
   vars:
-    ansible_python_interpreter: /usr/bin/python
-    limine_conf_path: "/boot/limine/limine.conf"
-    username: "rbl"
-    dotfiles:
-      repo: "https://github.com/BraunRudolf/.dotfiles.git"
-      dest: "/home/{{ username }}/.dotfiles"
-      subdirs:
-        - common
-        - linux  
+    ansible_python_interpreter: /usr/bin/python  
 
   tasks:
     - name: Import System configurations
@@ -23,12 +15,12 @@
 
     - name: Import AUR & Third-party tools
       ansible.builtin.import_tasks: tasks/aur.yml
-      
+
     - name: Import dotfiles and setup configs
       ansible.builtin.import_tasks: tasks/dotfiles.yml
+
     - name: Install zap
       ansible.builtin.import_tasks: tasks/zap.yml
-
 
   handlers:
     - name: Regenerate initramfs
