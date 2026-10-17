@@ -42,15 +42,14 @@
   ansible.builtin.command:
     argv:
       - stow
-      # Restow after a checkout update to prune obsolete links; plain stow on
-      # an unchanged checkout avoids unlinking and relinking on every run.
-      - "{{ dotfiles_checkout.changed | ternary('--restow', '--stow') }}"
       - -v
       - -d
       - "{{ dotfiles.dest }}/{{ item.0.item }}"
       - -t
       - "/home/{{ username }}"
-      - --
+      # Stow 2.4.1's package callback does not see arguments after --.
+      # Restow only after an update to prune obsolete links.
+      - "{{ dotfiles_checkout.changed | ternary('--restow', '--stow') }}"
       - "{{ item.1.path | basename }}"
   loop: "{{ found_dotfiles.results | subelements('files', skip_missing=True) }}"
   register: stow_out
