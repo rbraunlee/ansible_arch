@@ -39,6 +39,7 @@
     name: "{{ nvidia_packages }}"
     state: present
   become: true
+  tags: ['nvidia']
 
 - name: Enable NVIDIA Early Modesetting in Limine
   ansible.builtin.replace:
@@ -47,6 +48,7 @@
     regexp: '^(\s*cmdline: (?!.*nvidia_drm\.modeset=1).*)'
     replace: '\1 nvidia_drm.modeset=1'
   become: true
+  tags: ['nvidia']
 
 - name: Ensure mkinitcpio drop-in directory exists
   ansible.builtin.file:
@@ -64,6 +66,7 @@
     mode: '0644'
   notify: Regenerate initramfs
   become: true
+  tags: ['nvidia']
 
 - name: Configure NetworkManager to use iwd backend
   ansible.builtin.copy:
@@ -75,19 +78,21 @@
   become: true
 
 - name: Basic Firewall Setup (UFW)
+  become: true
   block:
-    - name: Set default firewall policies
+    - name: Deny incoming connections by default
       community.general.ufw:
-        direction: "{{ item.direction }}"
-        policy: "{{ item.policy }}"
-      loop:
-        - { direction: 'incoming', policy: 'deny' }
-        - { direction: 'outgoing', policy: 'allow' }
-    
+        direction: incoming
+        policy: deny
+
+    - name: Allow outgoing connections by default
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+
     - name: Enable UFW
       community.general.ufw:
         state: enabled
-  become: true    
 
 - name: Enable and Start System Services
   ansible.builtin.systemd_service:
@@ -96,4 +101,3 @@
     state: started
   loop: "{{ enable_services }}"
   become: true
-
