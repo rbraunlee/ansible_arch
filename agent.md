@@ -79,11 +79,20 @@ aur_builder  →  /etc/sudoers.d/11-install-aur_builder
 1. Clone dotfiles repository
 2. Create `.config` directory with proper permissions
 3. Find subdirectories in `common/` and `linux/`
-4. Symlink contents using GNU Stow with `-R -v` flags
+4. Before Stow, inspect the configured user's root `.bashrc` only if exactly one
+   selected package provides it. An unchanged Arch `/etc/skel/.bashrc` is removed
+   without a backup; a customized regular file is copied to a unique backup in
+   `/home/<username>/.bashrc-backups/` (private mode `0700`) before removal. The
+   matching `.note` identifies the original, backup and planned Stow source.
+   Its status remains "pending" rather than claiming Stow succeeded; inspect
+   the current target before restoring. Wrong links, directories, ambiguous
+   sources and unsafe backup destinations fail without replacing the target.
+5. Stow creates links; reruns without a checkout update use `--stow`, while a
+   checkout change uses `--restow` to prune stale links.
 
 **Stow Command:**
 ```bash
-stow -R -v -d ~/.dotfiles/<subdir> -t /home/<username> <app>
+stow -v -d ~/.dotfiles/<subdir> -t /home/<username> --stow <app>
 ```
 
 ### zap.yml
@@ -204,15 +213,15 @@ lsmod | grep nvidia
 
 **Symptom:** Stow fails with "already exists" error
 
-**Cause:** Manual symlinks conflict with Stow
+**Cause:** A target conflicts with Stow. Only the configured user's root
+`.bashrc` has the narrow default/custom-file policy described above.
 
-**Resolution:**
-```bash
-# Remove conflicting symlinks
-rm -f ~/.config/conflicting-file
-# Re-run playbook
-ansible-playbook main.yml
-```
+**Resolution:** Inspect the exact conflicting target and intended source; do
+not delete unrelated paths or adopt them wholesale. For a customized `.bashrc`,
+the playbook prints its backup and recovery-note locations. To restore, inspect
+the note and current target, remove the Stow link if present, then copy the
+backup back to its original path with metadata preserved (for example `cp -p`).
+Do not move or overwrite the original backup while verifying the restoration.
 
 ## Testing
 

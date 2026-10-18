@@ -38,6 +38,31 @@
   become: true
   become_user: "{{ username }}"
 
+- name: Prepare selected .bashrc for Stow
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python
+      # Locate next to this imported task, not relative to the caller's playbook_dir.
+      - "{{ lookup('ansible.builtin.first_found', ['bashrc_policy.py']) }}"
+      - --home
+      - "/home/{{ username }}"
+      - --skel
+      - /etc/skel/.bashrc
+      - --packages-json
+      - "{{ found_dotfiles.results | map(attribute='files') | flatten | map(attribute='path') | list | to_json }}"
+  register: bashrc_policy
+  changed_when: bashrc_policy.rc == 0 and (bashrc_policy.stdout | from_json).changed
+  become: true
+  become_user: "{{ username }}"
+
+- name: Report customized .bashrc backup and recovery note
+  ansible.builtin.debug:
+    msg: >-
+      Custom .bashrc backup: {{ (bashrc_policy.stdout | from_json).backup }};
+      recovery note: {{ (bashrc_policy.stdout | from_json).note }};
+      Stow replacement pending
+  when: (bashrc_policy.stdout | from_json).backup is defined
+
 - name: Symlink dotfiles using Stow
   ansible.builtin.command:
     argv:
