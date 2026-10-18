@@ -17,6 +17,7 @@
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/zap-zsh/zap/master/install.zsh
         dest: "{{ zap_installer_tmp.path }}"
+        force: true
         mode: '0600'
 
     - name: Execute Zap installer
