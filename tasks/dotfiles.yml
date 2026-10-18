@@ -40,6 +40,8 @@
 
 - name: Prepare selected .bashrc for Stow
   ansible.builtin.command:
+    # Explicit shared cwd keeps Stow's .stowrc lookup identical to the guard.
+    chdir: "/home/{{ username }}"
     argv:
       - /usr/bin/python
       # Locate next to this imported task, not relative to the caller's playbook_dir.
@@ -52,6 +54,8 @@
       - "{{ found_dotfiles.results | map(attribute='files') | flatten | map(attribute='path') | list | to_json }}"
   register: bashrc_policy
   changed_when: bashrc_policy.rc == 0 and (bashrc_policy.stdout | from_json).changed
+  environment:
+    HOME: "/home/{{ username }}"
   become: true
   become_user: "{{ username }}"
 
@@ -65,6 +69,7 @@
 
 - name: Symlink dotfiles using Stow
   ansible.builtin.command:
+    chdir: "/home/{{ username }}"
     argv:
       - stow
       - -v
@@ -79,5 +84,27 @@
   loop: "{{ found_dotfiles.results | subelements('files', skip_missing=True) }}"
   register: stow_out
   changed_when: "stow_out.stderr is search('(?m)^(?:LINK|UNLINK):')"
+  environment:
+    HOME: "/home/{{ username }}"
+  become: true
+  become_user: "{{ username }}"
+
+- name: Finalize verified .bashrc replacement note
+  ansible.builtin.command:
+    chdir: "/home/{{ username }}"
+    argv:
+      - /usr/bin/python
+      - "{{ lookup('ansible.builtin.first_found', ['bashrc_policy.py']) }}"
+      - --finalize
+      - --home
+      - "/home/{{ username }}"
+      - --skel
+      - /etc/skel/.bashrc
+      - --packages-json
+      - "{{ found_dotfiles.results | map(attribute='files') | flatten | map(attribute='path') | list | to_json }}"
+  register: bashrc_finalization
+  changed_when: bashrc_finalization.rc == 0 and (bashrc_finalization.stdout | from_json).changed
+  environment:
+    HOME: "/home/{{ username }}"
   become: true
   become_user: "{{ username }}"

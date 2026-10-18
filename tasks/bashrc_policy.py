@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import stat
 import sys
+import tempfile
 import uuid
 
 
@@ -69,7 +70,7 @@ def safe_copy(original, dest):
         raise
 
 
-def prepare(home, skel, packages):
+def selected_source(home, skel, packages):
     if not home.is_absolute() or not skel.is_absolute() or not isinstance(packages, list):
         raise ValueError("absolute home/skel and a list of selected package paths required")
     if not stat.S_ISDIR(home.lstat().st_mode) or home.lstat().st_uid != os.geteuid():
@@ -90,15 +91,52 @@ def prepare(home, skel, packages):
     if len(sources) > 1:
         raise ValueError("ambiguous selected .bashrc Stow sources; refusing to change target")
     if not sources:
-        return {"changed": False, "reason": "no selected package manages .bashrc"}
+        return None
 
     source = sources[0]
+    # Stow's local/global ignore files and cwd/home .stowrc options can prevent
+    # linking .bashrc. Other selected packages can install a global config before
+    # the bash package is processed. We cannot prove effective management in
+    # these cases, so refuse even to remove a byte-identical Arch default.
+    config_paths = {home / ".stowrc", Path.cwd() / ".stowrc",
+                    home / ".stow-global-ignore", home / ".stow-local-ignore"}
+    for name in packages:
+        package = Path(name)
+        for directory in (package, package.parent):
+            config_paths.update(directory / filename for filename in
+                                (".stow-local-ignore", ".stow-global-ignore", ".stowrc"))
+    for config in sorted(config_paths):
+        if os.path.lexists(config):
+            raise ValueError(f"unsupported Stow ignore/options configuration: {config}")
+    return source
+
+
+def intended_link(target, source):
+    return target.is_symlink() and target.resolve() == source.resolve()
+
+
+def note_text(target, backup, source, status):
+    return (f"Original: {target}\nBackup: {backup}\n"
+            f"Planned replacement: GNU Stow link to {source}\n"
+            f"Status: {status}\n"
+            "To restore, first remove the Stow link if present, then copy the backup to the original path.\n")
+
+
+PENDING = "replacement pending; check the current target to confirm."
+VERIFIED = "Stow .bashrc link verified; replacement completed."
+
+
+def prepare(home, skel, packages):
+    source = selected_source(home, skel, packages)
+    if source is None:
+        return {"changed": False, "reason": "no selected package manages .bashrc"}
+
     target = home / ".bashrc"
     original = regular(target)
     if original is None:
         return {"changed": False, "reason": "target absent; Stow will link"}
     if original is False:
-        if target.is_symlink() and target.resolve() == source.resolve():
+        if intended_link(target, source):
             return {"changed": False, "reason": "correct link already present"}
         raise ValueError(f"unsupported existing .bashrc (not intended Stow link): {target}")
     if original.st_uid != os.geteuid():
@@ -120,10 +158,7 @@ def prepare(home, skel, packages):
     safe_copy(target, backup)
     # Note deliberately describes intent, not a completed Stow operation: it stays
     # truthful if Stow or any later task fails and is never rewritten on reruns.
-    text = (f"Original: {target}\nBackup: {backup}\n"
-            f"Planned replacement: GNU Stow link to {source}\n"
-            "Status: replacement pending; check the current target to confirm.\n"
-            "To restore, first remove the Stow link if present, then copy the backup to the original path.\n")
+    text = note_text(target, backup, source, PENDING)
     with os.fdopen(os.open(note, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w") as stream:
         stream.write(text)
         stream.flush()
@@ -135,14 +170,62 @@ def prepare(home, skel, packages):
             "reason": "custom .bashrc backed up; Stow replacement pending"}
 
 
+def finalize(home, skel, packages):
+    source = selected_source(home, skel, packages)
+    if source is None:
+        return {"changed": False, "reason": "no selected package manages .bashrc"}
+    target = home / ".bashrc"
+    if not intended_link(target, source):
+        raise ValueError(f"Stow did not create the intended .bashrc link: {target}")
+    directory = home / ".bashrc-backups"
+    if not os.path.lexists(directory):
+        return {"changed": False, "reason": "Stow link verified; no custom backup note"}
+    ensure_private_directory(directory)
+    pending = []
+    for note in directory.glob("bashrc-*.note"):
+        backup = note.with_suffix("")
+        info = regular(note)
+        original = regular(backup)
+        if not info or info.st_uid != os.geteuid() or not original or original.st_uid != os.geteuid():
+            raise ValueError(f"unsafe .bashrc recovery note or backup: {note}")
+        content = note.read_text()
+        if content == note_text(target, backup, source, PENDING):
+            pending.append(note)
+        elif content != note_text(target, backup, source, VERIFIED):
+            raise ValueError(f"unrecognized .bashrc recovery note: {note}")
+    if len(pending) > 1:
+        raise ValueError("multiple pending .bashrc notes; refusing ambiguous finalization")
+    if not pending:
+        return {"changed": False, "reason": "Stow link and note already verified"}
+    note = pending[0]
+    backup = note.with_suffix("")
+    # Replace the note atomically only after confirming the link; an interrupted
+    # write leaves the old honest pending note and the backup intact.
+    fd, temp = tempfile.mkstemp(prefix=".bashrc-note-", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as output:
+            output.write(note_text(target, backup, source, VERIFIED))
+            output.flush()
+            os.fsync(output.fileno())
+        if not intended_link(target, source):
+            raise ValueError(".bashrc link changed before note finalization")
+        os.replace(temp, note)
+    finally:
+        if os.path.lexists(temp):
+            os.unlink(temp)
+    return {"changed": True, "note": str(note), "reason": "Stow .bashrc link verified"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home", required=True, type=Path)
     parser.add_argument("--skel", required=True, type=Path)
     parser.add_argument("--packages-json", required=True)
+    parser.add_argument("--finalize", action="store_true")
     args = parser.parse_args()
     try:
-        result = prepare(args.home, args.skel, json.loads(args.packages_json))
+        operation = finalize if args.finalize else prepare
+        result = operation(args.home, args.skel, json.loads(args.packages_json))
     except (OSError, ValueError, TypeError) as exc:
         print(f".bashrc policy stopped: {exc}", file=sys.stderr)
         return 1

@@ -33,12 +33,12 @@ class BashrcPolicyTest(unittest.TestCase):
         self.target = self.home / ".bashrc"
         self.backups = self.home / ".bashrc-backups"
 
-    def run_policy(self, *, packages=None):
+    def run_policy(self, *, packages=None, mode=None, cwd=None):
         process = subprocess.run(
-            [sys.executable, str(POLICY), "--home", str(self.home),
+            [sys.executable, str(POLICY), *([mode] if mode else []), "--home", str(self.home),
              "--skel", str(self.skel), "--packages-json",
              json.dumps(self.packages if packages is None else packages)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, cwd=cwd or self.home,
         )
         return process
 
@@ -89,6 +89,47 @@ class BashrcPolicyTest(unittest.TestCase):
         self.assertEqual(Path(first["backup"]).read_bytes(), b"my shell\n")
         self.assertIn("pending", Path(first["note"]).read_text())
 
+    def test_verified_stow_link_finalizes_custom_backup_note_once(self):
+        self.target.write_bytes(b"custom shell\n")
+        prepared = self.outcome(self.run_policy())
+        note = Path(prepared["note"])
+        self.assertIn("Status: replacement pending", note.read_text())
+        self.target.symlink_to(self.source)  # Synthetic fixture: no Stow execution.
+        self.assertTrue(self.outcome(self.run_policy(mode="--finalize"))["changed"])
+        finalized = note.read_text()
+        self.assertIn("Status: Stow .bashrc link verified; replacement completed", finalized)
+        self.assertNotIn("Status: replacement pending", finalized)
+        mtime = note.stat().st_mtime_ns
+        self.assertFalse(self.outcome(self.run_policy(mode="--finalize"))["changed"])
+        self.assertEqual(note.stat().st_mtime_ns, mtime)
+        self.assertEqual(len(list(self.backups.iterdir())), 2)
+
+    def test_retry_finalizes_pending_note_without_new_backup(self):
+        self.target.write_bytes(b"custom shell\n")
+        prepared = self.outcome(self.run_policy())
+        self.assertNotEqual(self.run_policy(mode="--finalize").returncode, 0)
+        self.assertIn("pending", Path(prepared["note"]).read_text())
+        self.target.symlink_to(self.source)
+        self.assertFalse(self.outcome(self.run_policy())["changed"])
+        self.assertTrue(self.outcome(self.run_policy(mode="--finalize"))["changed"])
+        before = sorted(self.backups.iterdir())
+        self.assertFalse(self.outcome(self.run_policy())["changed"])
+        self.assertFalse(self.outcome(self.run_policy(mode="--finalize"))["changed"])
+        self.assertEqual(sorted(self.backups.iterdir()), before)
+
+    def test_missing_or_wrong_stow_link_cannot_finalize_note(self):
+        self.target.write_bytes(b"preserve me\n")
+        prepared = self.outcome(self.run_policy())
+        note = Path(prepared["note"])
+        original = note.read_bytes()
+        self.assertNotEqual(self.run_policy(mode="--finalize").returncode, 0)
+        other = self.home.parent / "wrong-source"
+        other.write_bytes(b"not Stow\n")
+        self.target.symlink_to(other)
+        self.assertNotEqual(self.run_policy(mode="--finalize").returncode, 0)
+        self.assertEqual(note.read_bytes(), original)
+        self.assertEqual(Path(prepared["backup"]).read_bytes(), b"preserve me\n")
+
     def test_new_custom_file_gets_unique_backup_without_rewriting_previous_one(self):
         self.target.write_bytes(b"first edition\n")
         first = self.outcome(self.run_policy())
@@ -105,6 +146,41 @@ class BashrcPolicyTest(unittest.TestCase):
         self.assertFalse(self.outcome(self.run_policy())["changed"])
         self.assertEqual(self.target.read_bytes(), b"existing\n")
         self.assertFalse(self.backups.exists())
+
+    def test_local_ignore_cannot_remove_an_untouched_default(self):
+        self.target.write_bytes(b"Arch default\n")
+        (self.source.parent / ".stow-local-ignore").write_text(r"^\.bashrc$" + "\n")
+        result = self.run_policy()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.target.read_bytes(), b"Arch default\n")
+        self.assertFalse(self.backups.exists())
+
+    def test_global_and_stowrc_configuration_cannot_remove_customized_target(self):
+        other = self.home.parent / "checkout" / "common" / "other"
+        other.mkdir(parents=True)
+        locations = (self.home / ".stow-global-ignore",
+                     self.home / ".stowrc",
+                     self.source.parent.parent / ".stow-global-ignore",
+                     other / ".stowrc",
+                     other / ".stow-global-ignore",
+                     self.home.parent / ".stowrc")
+        self.target.write_bytes(b"important configuration\n")
+        for config in locations:
+            with self.subTest(config=config):
+                config.write_text("--ignore=.bashrc\n")
+                outcome = self.run_policy(packages=self.packages + [str(other)], cwd=self.home.parent)
+                self.assertNotEqual(outcome.returncode, 0, outcome.stdout)
+                self.assertEqual(self.target.read_bytes(), b"important configuration\n")
+                self.assertFalse(self.backups.exists())
+                config.unlink()
+
+    def test_unmanaged_bashrc_is_not_migrated_despite_stow_config(self):
+        self.source.unlink()
+        self.target.write_bytes(b"Arch default\n")
+        (self.home / ".stowrc").write_text("--ignore=.bashrc\n")
+        self.assertFalse(self.outcome(self.run_policy())["changed"])
+        self.assertFalse(self.outcome(self.run_policy(mode="--finalize"))["changed"])
+        self.assertEqual(self.target.read_bytes(), b"Arch default\n")
 
     def test_wrong_link_directory_and_ambiguous_sources_are_rejected(self):
         another = self.home.parent / "elsewhere"
@@ -171,6 +247,19 @@ class BashrcPolicyTest(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(), b"preserve on disk failure\n")
         self.assertEqual(len(list(self.backups.iterdir())), 1)
 
+    def test_failed_final_note_write_leaves_backup_and_pending_note(self):
+        self.target.write_bytes(b"saved original\n")
+        prepared = self.outcome(self.run_policy())
+        self.target.symlink_to(self.source)
+        spec = importlib.util.spec_from_file_location("bashrc_policy", POLICY)
+        policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(policy)
+        with patch.object(policy.os, "replace", side_effect=OSError("synthetic note write failure")):
+            with self.assertRaises(OSError):
+                policy.finalize(self.home, self.skel, self.packages)
+        self.assertIn("Status: replacement pending", Path(prepared["note"]).read_text())
+        self.assertEqual(Path(prepared["backup"]).read_bytes(), b"saved original\n")
+
     def test_task_calls_real_policy_for_all_selected_packages_before_stow(self):
         tasks = yaml.safe_load((ROOT / "tasks/dotfiles.yml").read_text())
         names = [task["name"] for task in tasks]
@@ -185,6 +274,16 @@ class BashrcPolicyTest(unittest.TestCase):
         self.assertEqual(policy["become_user"], "{{ username }}")
         self.assertTrue(policy["become"])
         self.assertNotIn("failed_when", policy)
+        self.assertEqual(policy["ansible.builtin.command"]["chdir"], "/home/{{ username }}")
+        stow = tasks[names.index("Symlink dotfiles using Stow")]
+        self.assertEqual(stow["ansible.builtin.command"]["chdir"], "/home/{{ username }}")
+        finalize = tasks[names.index("Finalize verified .bashrc replacement note")]
+        self.assertGreater(names.index(finalize["name"]), names.index(stow["name"]))
+        self.assertEqual(finalize["ansible.builtin.command"]["chdir"], "/home/{{ username }}")
+        self.assertIn("--finalize", finalize["ansible.builtin.command"]["argv"])
+        self.assertNotIn("failed_when", finalize)
+        for task in (policy, stow, finalize):
+            self.assertEqual(task["environment"]["HOME"], "/home/{{ username }}")
         report = tasks[names.index("Report customized .bashrc backup and recovery note")]
         self.assertIn(".backup", report["ansible.builtin.debug"]["msg"])
         self.assertIn(".note", report["ansible.builtin.debug"]["msg"])

@@ -80,15 +80,24 @@ aur_builder  →  /etc/sudoers.d/11-install-aur_builder
 2. Create `.config` directory with proper permissions
 3. Find subdirectories in `common/` and `linux/`
 4. Before Stow, inspect the configured user's root `.bashrc` only if exactly one
-   selected package provides it. An unchanged Arch `/etc/skel/.bashrc` is removed
-   without a backup; a customized regular file is copied to a unique backup in
-   `/home/<username>/.bashrc-backups/` (private mode `0700`) before removal. The
-   matching `.note` identifies the original, backup and planned Stow source.
-   Its status remains "pending" rather than claiming Stow succeeded; inspect
-   the current target before restoring. Wrong links, directories, ambiguous
+   selected package provides it. If Stow ignore/options configuration might
+   suppress the link (local/global ignore or `.stowrc` in the home/working
+   directory or selected package trees), fail before removing the target. Both
+   policy and Stow run from the configured user's home with `HOME` set to that
+   path for the same `.stowrc` lookup context; the Stow `-d` and `-t` paths
+   remain absolute. An unchanged Arch `/etc/skel/.bashrc` is removed without
+   backup; a customized regular file is copied to a unique backup in
+   `/home/<username>/.bashrc-backups/`
+   (private mode `0700`) before removal. Wrong links, directories, ambiguous
    sources and unsafe backup destinations fail without replacing the target.
 5. Stow creates links; reruns without a checkout update use `--stow`, while a
-   checkout change uses `--restow` to prune stale links.
+   checkout change uses `--restow` to prune stale links. The matching `.note`
+   records the original path, backup and planned Stow source. It stays pending
+   if Stow fails; only after Stow succeeds and the intended link is verified is
+   its status atomically changed to "Stow .bashrc link verified; replacement
+   completed." A successful retry can finalize a pending note without another
+   backup. This status verifies the link, not the entire workstation deployment.
+   Check the current target before restoring from the backup.
 
 **Stow Command:**
 ```bash
