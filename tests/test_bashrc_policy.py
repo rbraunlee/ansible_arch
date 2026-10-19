@@ -78,6 +78,29 @@ class BashrcPolicyTest(unittest.TestCase):
         self.assertNotIn("secret customized shell", text)
         self.assertNotIn("secret customized shell", json.dumps(outcome))
 
+    def test_custom_backup_preserves_allowed_non_primary_group(self):
+        groups = [gid for gid in os.getgroups() if gid != os.getegid()]
+        if not groups:
+            self.skipTest("no supplementary non-primary group available")
+        self.target.write_bytes(b"private custom shell\n")
+        try:
+            os.chown(self.target, -1, groups[0])
+        except PermissionError:
+            self.skipTest("current user cannot assign supplementary group to owned fixture")
+        self.target.chmod(0o640)
+        original = self.target.stat()
+        self.assertNotEqual(original.st_gid, os.getegid())
+        outcome = self.outcome(self.run_policy())
+        backup = Path(outcome["backup"])
+        saved = backup.stat()
+        self.assertEqual(saved.st_gid, original.st_gid)
+        self.assertEqual(saved.st_uid, original.st_uid)
+        self.assertEqual(saved.st_mode & 0o777, original.st_mode & 0o777)
+        self.assertEqual(saved.st_mtime_ns, original.st_mtime_ns)
+        self.assertEqual(backup.read_bytes(), b"private custom shell\n")
+        self.assertFalse(self.target.exists())
+        self.assertIn("pending", Path(outcome["note"]).read_text())
+
     def test_correct_link_and_custom_backup_rerun_are_stable(self):
         self.target.write_bytes(b"my shell\n")
         first = self.outcome(self.run_policy())
@@ -154,6 +177,19 @@ class BashrcPolicyTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.target.read_bytes(), b"Arch default\n")
         self.assertFalse(self.backups.exists())
+
+    def test_option_like_selected_source_refuses_default_and_custom_before_mutation(self):
+        option_package = self.source.parent.parent / "-n"
+        option_package.mkdir()
+        (option_package / ".bashrc").write_bytes(b"managed shell\n")
+        for original in (b"Arch default\n", b"private custom shell\n"):
+            with self.subTest(original=original == b"Arch default\n"):
+                self.target.write_bytes(original)
+                result = self.run_policy(packages=[str(option_package)])
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(result.stdout, "")  # No false changed/success output.
+                self.assertEqual(self.target.read_bytes(), original)
+                self.assertFalse(self.backups.exists())
 
     def test_global_and_stowrc_configuration_cannot_remove_customized_target(self):
         other = self.home.parent / "checkout" / "common" / "other"
@@ -246,6 +282,29 @@ class BashrcPolicyTest(unittest.TestCase):
                 policy.prepare(self.home, self.skel, self.packages)
         self.assertEqual(self.target.read_bytes(), b"preserve on disk failure\n")
         self.assertEqual(len(list(self.backups.iterdir())), 1)
+
+    def test_group_change_failure_or_unverified_group_retains_original(self):
+        groups = [gid for gid in os.getgroups() if gid != os.getegid()]
+        if not groups:
+            self.skipTest("no supplementary non-primary group available")
+        self.target.write_bytes(b"private custom shell\n")
+        try:
+            os.chown(self.target, -1, groups[0])
+        except PermissionError:
+            self.skipTest("current user cannot assign supplementary group to owned fixture")
+        original = self.target.stat()
+        spec = importlib.util.spec_from_file_location("bashrc_policy", POLICY)
+        policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(policy)
+        for change_group in (OSError("synthetic group change failure"), None):
+            with self.subTest(group_change_raises=change_group is not None):
+                # A no-op chown exercises the independent metadata verification.
+                with patch.object(policy.os, "chown", side_effect=change_group):
+                    with self.assertRaises((OSError, ValueError)):
+                        policy.prepare(self.home, self.skel, self.packages)
+                self.assertEqual(self.target.read_bytes(), b"private custom shell\n")
+                self.assertEqual(self.target.stat().st_gid, original.st_gid)
+                self.assertEqual(list(self.backups.iterdir()), [])
 
     def test_failed_final_note_write_leaves_backup_and_pending_note(self):
         self.target.write_bytes(b"saved original\n")

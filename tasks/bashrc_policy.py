@@ -62,7 +62,16 @@ def safe_copy(original, dest):
             shutil.copyfileobj(source, output)
             output.flush()
             os.fsync(output.fileno())
+        metadata = original.stat()
+        if dest.stat().st_gid != metadata.st_gid:
+            # The configured user may assign only their own groups. Refuse to
+            # remove the original if its group cannot be preserved.
+            os.chown(dest, -1, metadata.st_gid)
         shutil.copystat(original, dest, follow_symlinks=False)
+        saved = dest.stat()
+        if any(getattr(saved, field) != getattr(metadata, field)
+               for field in ("st_uid", "st_gid", "st_mode", "st_mtime_ns")):
+            raise ValueError(".bashrc backup metadata verification failed")
         if not identical(original, dest):
             raise ValueError(".bashrc backup verification failed")
     except Exception:
@@ -87,6 +96,10 @@ def selected_source(home, skel, packages):
         if info is False:
             raise ValueError(f"unsupported .bashrc Stow source: {source}")
         if info:
+            # The following Stow task passes this basename as a bare argv item;
+            # a leading dash is parsed as an option, not a package to link.
+            if package.name.startswith("-"):
+                raise ValueError(f"unsupported option-like Stow package: {package}")
             sources.append(source)
     if len(sources) > 1:
         raise ValueError("ambiguous selected .bashrc Stow sources; refusing to change target")
