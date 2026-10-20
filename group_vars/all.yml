@@ -22,6 +22,7 @@ desktop_packages:
   - starship
   - zsh
   - hyprland
+  - hyprpaper
   - kitty
   - ghostty
   - firefox
@@ -31,8 +32,7 @@ desktop_packages:
   - wofi
   - swww
   - mako
-  - grim
-  - slurp
+  - flameshot
   - wl-clipboard
   - pavucontrol
   - nm-connection-editor
