@@ -79,11 +79,29 @@ aur_builder  →  /etc/sudoers.d/11-install-aur_builder
 1. Clone dotfiles repository
 2. Create `.config` directory with proper permissions
 3. Find subdirectories in `common/` and `linux/`
-4. Symlink contents using GNU Stow with `-R -v` flags
+4. Before Stow, inspect the configured user's root `.bashrc` only if exactly one
+   selected package provides it. If Stow ignore/options configuration might
+   suppress the link (local/global ignore or `.stowrc` in the home/working
+   directory or selected package trees), fail before removing the target. Both
+   policy and Stow run from the configured user's home with `HOME` set to that
+   path for the same `.stowrc` lookup context; the Stow `-d` and `-t` paths
+   remain absolute. An unchanged Arch `/etc/skel/.bashrc` is removed without
+   backup; a customized regular file is copied to a unique backup in
+   `/home/<username>/.bashrc-backups/`
+   (private mode `0700`) before removal. Wrong links, directories, ambiguous
+   sources and unsafe backup destinations fail without replacing the target.
+5. Stow creates links; reruns without a checkout update use `--stow`, while a
+   checkout change uses `--restow` to prune stale links. The matching `.note`
+   records the original path, backup and planned Stow source. It stays pending
+   if Stow fails; only after Stow succeeds and the intended link is verified is
+   its status atomically changed to "Stow .bashrc link verified; replacement
+   completed." A successful retry can finalize a pending note without another
+   backup. This status verifies the link, not the entire workstation deployment.
+   Check the current target before restoring from the backup.
 
 **Stow Command:**
 ```bash
-stow -R -v -d ~/.dotfiles/<subdir> -t /home/<username> <app>
+stow -v -d ~/.dotfiles/<subdir> -t /home/<username> --stow <app>
 ```
 
 ### zap.yml
@@ -204,15 +222,15 @@ lsmod | grep nvidia
 
 **Symptom:** Stow fails with "already exists" error
 
-**Cause:** Manual symlinks conflict with Stow
+**Cause:** A target conflicts with Stow. Only the configured user's root
+`.bashrc` has the narrow default/custom-file policy described above.
 
-**Resolution:**
-```bash
-# Remove conflicting symlinks
-rm -f ~/.config/conflicting-file
-# Re-run playbook
-ansible-playbook main.yml
-```
+**Resolution:** Inspect the exact conflicting target and intended source; do
+not delete unrelated paths or adopt them wholesale. For a customized `.bashrc`,
+the playbook prints its backup and recovery-note locations. To restore, inspect
+the note and current target, remove the Stow link if present, then copy the
+backup back to its original path with metadata preserved (for example `cp -p`).
+Do not move or overwrite the original backup while verifying the restoration.
 
 ## Testing
 

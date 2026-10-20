@@ -4,7 +4,7 @@
   connection: local
 
   vars:
-    ansible_python_interpreter: /usr/bin/python  
+    ansible_python_interpreter: /usr/bin/python
 
   tasks:
     - name: Import System configurations
@@ -25,3 +25,5 @@
   handlers:
     - name: Regenerate initramfs
       ansible.builtin.command: mkinitcpio -P
+      become: true
+      changed_when: true

@@ -9,9 +9,13 @@
   ansible.builtin.git:
     repo: "{{ dotfiles.repo }}"
     dest: "{{ dotfiles.dest }}"
-    recursive: yes
-    update: yes
-    accept_hostkey: yes
+    recursive: true
+    update: true
+    accept_hostkey: true
+  register: dotfiles_checkout
+  # Rolling updates are intentional; pinning this checkout would change workstation behavior.
+  # noqa: latest[git]
+  become: true
   become_user: "{{ username }}"
 
 - name: Ensure .config directory exists
@@ -21,22 +25,86 @@
     owner: "{{ username }}"
     group: "{{ username }}"
     mode: '0755'
+  become: true
   become_user: "{{ username }}"
 
 - name: Find all app folders in common and linux subdirs
   ansible.builtin.find:
     paths: "{{ dotfiles.dest }}/{{ item }}"
     file_type: directory
-    recurse: no
+    recurse: false
   loop: "{{ dotfiles.subdirs }}"
   register: found_dotfiles
+  become: true
   become_user: "{{ username }}"
 
+- name: Prepare selected .bashrc for Stow
+  ansible.builtin.command:
+    # Explicit shared cwd keeps Stow's .stowrc lookup identical to the guard.
+    chdir: "/home/{{ username }}"
+    argv:
+      - /usr/bin/python
+      # Locate next to this imported task, not relative to the caller's playbook_dir.
+      - "{{ lookup('ansible.builtin.first_found', ['bashrc_policy.py']) }}"
+      - --home
+      - "/home/{{ username }}"
+      - --skel
+      - /etc/skel/.bashrc
+      - --packages-json
+      - "{{ found_dotfiles.results | map(attribute='files') | flatten | map(attribute='path') | list | to_json }}"
+  register: bashrc_policy
+  changed_when: bashrc_policy.rc == 0 and (bashrc_policy.stdout | from_json).changed
+  environment:
+    HOME: "/home/{{ username }}"
+  become: true
+  become_user: "{{ username }}"
+
+- name: Report customized .bashrc backup and recovery note
+  ansible.builtin.debug:
+    msg: >-
+      Custom .bashrc backup: {{ (bashrc_policy.stdout | from_json).backup }};
+      recovery note: {{ (bashrc_policy.stdout | from_json).note }};
+      Stow replacement pending
+  when: (bashrc_policy.stdout | from_json).backup is defined
+
 - name: Symlink dotfiles using Stow
-  ansible.builtin.shell:
-    cmd: "stow -R -v -d {{ dotfiles.dest }}/{{ item.0.item }} -t /home/{{ username }} {{ item.1.path | basename }}"
+  ansible.builtin.command:
+    chdir: "/home/{{ username }}"
+    argv:
+      - stow
+      - -v
+      - -d
+      - "{{ dotfiles.dest }}/{{ item.0.item }}"
+      - -t
+      - "/home/{{ username }}"
+      # Stow 2.4.1's package callback does not see arguments after --.
+      # Restow only after an update to prune obsolete links.
+      - "{{ dotfiles_checkout.changed | ternary('--restow', '--stow') }}"
+      - "{{ item.1.path | basename }}"
   loop: "{{ found_dotfiles.results | subelements('files', skip_missing=True) }}"
   register: stow_out
-  changed_when: "'LINK' in stow_out.stderr or 'UNLINK' in stow_out.stderr"
-  failed_when: false
+  changed_when: "stow_out.stderr is search('(?m)^(?:LINK|UNLINK):')"
+  environment:
+    HOME: "/home/{{ username }}"
+  become: true
+  become_user: "{{ username }}"
+
+- name: Finalize verified .bashrc replacement note
+  ansible.builtin.command:
+    chdir: "/home/{{ username }}"
+    argv:
+      - /usr/bin/python
+      - "{{ lookup('ansible.builtin.first_found', ['bashrc_policy.py']) }}"
+      - --finalize
+      - --home
+      - "/home/{{ username }}"
+      - --skel
+      - /etc/skel/.bashrc
+      - --packages-json
+      - "{{ found_dotfiles.results | map(attribute='files') | flatten | map(attribute='path') | list | to_json }}"
+  register: bashrc_finalization
+  changed_when: bashrc_finalization.rc == 0 and (bashrc_finalization.stdout | from_json).changed
+  environment:
+    HOME: "/home/{{ username }}"
+  become: true
   become_user: "{{ username }}"

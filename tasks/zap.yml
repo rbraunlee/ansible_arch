@@ -1,12 +1,43 @@
+---
 - name: Check if Zap plugin manager is installed
   ansible.builtin.stat:
     path: "{{ ansible_facts['user_dir'] }}/.local/share/zap/zap.zsh"
   register: zap_check
 
-- name: Install Zap plugin manager
-  ansible.builtin.shell:
-    cmd: "curl -s https://raw.githubusercontent.com/zap-zsh/zap/master/install.zsh | zsh"
-  register: zap_install
-  changed_when: "'Zap installed' in zap_install.stdout or 'Zap installed' in zap_install.stderr"
-  failed_when: false
+- name: Install Zap plugin manager when absent
   when: not zap_check.stat.exists
+  block:
+    - name: Create temporary Zap installer file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .zsh
+      register: zap_installer_tmp
+
+    - name: Download Zap installer
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/zap-zsh/zap/master/install.zsh
+        dest: "{{ zap_installer_tmp.path }}"
+        force: true
+        mode: '0600'
+
+    - name: Execute Zap installer
+      ansible.builtin.command:
+        argv:
+          - zsh
+          - "{{ zap_installer_tmp.path }}"
+      environment:
+        HOME: "{{ ansible_facts['user_dir'] }}"
+      changed_when: true
+
+    - name: Verify Zap installation
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['user_dir'] }}/.local/share/zap/zap.zsh"
+      register: zap_installed
+      failed_when: not zap_installed.stat.exists
+
+  always:
+    - name: Remove temporary Zap installer file
+      ansible.builtin.file:
+        path: "{{ zap_installer_tmp.path }}"
+        state: absent
+      when: zap_installer_tmp is defined and zap_installer_tmp.path is defined
