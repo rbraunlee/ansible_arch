@@ -118,10 +118,12 @@ aur_builder  →  /etc/sudoers.d/11-install-aur_builder
 3. Find subdirectories in `common/` and `linux/`
 4. Before Stow, inspect the configured user's root `.bashrc` only if exactly one
    selected package provides it. If Stow ignore/options configuration might
-   suppress the link (local/global ignore or `.stowrc` in the home/working
-   directory or selected package trees), fail before removing the target. Both
-   policy and Stow run from the configured user's home with `HOME` set to that
-   path for the same `.stowrc` lookup context; the Stow `-d` and `-t` paths
+   suppress the link (a local ignore in that package, or global ignore/`.stowrc`
+   configuration in the home/working directory or selected package trees), fail
+   before removing the target. GNU Stow scopes another package's
+   `.stow-local-ignore` to that package, so unrelated local rules are accepted.
+   Both policy and Stow run from the configured user's home with `HOME` set to
+   that path for the same `.stowrc` lookup context; the Stow `-d` and `-t` paths
    remain absolute. An unchanged Arch `/etc/skel/.bashrc` is removed without
    backup; a customized regular file is copied to a unique backup in
    `/home/<username>/.bashrc-backups/`

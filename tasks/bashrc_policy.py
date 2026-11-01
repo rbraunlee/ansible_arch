@@ -107,17 +107,20 @@ def selected_source(home, skel, packages):
         return None
 
     source = sources[0]
-    # Stow's local/global ignore files and cwd/home .stowrc options can prevent
-    # linking .bashrc. Other selected packages can install a global config before
-    # the bash package is processed. We cannot prove effective management in
-    # these cases, so refuse even to remove a byte-identical Arch default.
+    # Stow reads .stow-local-ignore only from the package currently being
+    # processed, so another selected package's local rules cannot suppress this
+    # source. Global/options files can affect every package, though, and another
+    # selected package can install one before the bash package is processed. We
+    # cannot prove effective management in those cases, so refuse even to remove
+    # a byte-identical Arch default.
     config_paths = {home / ".stowrc", Path.cwd() / ".stowrc",
-                    home / ".stow-global-ignore", home / ".stow-local-ignore"}
+                    home / ".stow-global-ignore", home / ".stow-local-ignore",
+                    source.parent / ".stow-local-ignore"}
     for name in packages:
         package = Path(name)
         for directory in (package, package.parent):
             config_paths.update(directory / filename for filename in
-                                (".stow-local-ignore", ".stow-global-ignore", ".stowrc"))
+                                (".stow-global-ignore", ".stowrc"))
     for config in sorted(config_paths):
         if os.path.lexists(config):
             raise ValueError(f"unsupported Stow ignore/options configuration: {config}")
