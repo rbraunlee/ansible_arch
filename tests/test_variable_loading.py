@@ -104,11 +104,16 @@ class VariableLoadingTest(unittest.TestCase):
         local_temp.mkdir(parents=True)
         remote_temp.mkdir(parents=True)
 
-        environment = os.environ.copy()
-        environment.pop("ANSIBLE_CONFIG", None)
-        environment.pop("ANSIBLE_INVENTORY", None)
+        config = project / "ansible.cfg"
+        config.write_text(
+            f"[defaults]\ninventory = {project / 'unused-default-inventory'}\n",
+            encoding="utf-8",
+        )
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith("ANSIBLE_")}
         environment.update(
             {
+                "ANSIBLE_CONFIG": str(config),
                 "ANSIBLE_LOCAL_TEMP": str(local_temp),
                 "ANSIBLE_REMOTE_TEMP": str(remote_temp),
                 "ANSIBLE_NOCOLOR": "1",

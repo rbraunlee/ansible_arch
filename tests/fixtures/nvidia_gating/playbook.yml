@@ -4,6 +4,21 @@
   connection: local
   gather_facts: false
 
+  pre_tasks:
+    - name: Enforce the NVIDIA fixture safety boundary
+      ansible.builtin.assert:
+        that:
+          - ansible_run_tags | sort == ['nvidia']
+          - ansible_skip_tags | length == 0
+          - ansible_become is false
+          - fixture_runtime_root is defined
+          - mkinitcpio_dropin_dir == fixture_runtime_root + '/etc/mkinitcpio.conf.d'
+          - limine_conf_path == fixture_runtime_root + '/boot/limine.conf'
+        fail_msg: NVIDIA fixture safety boundary violated; use the Python test runner.
+        quiet: true
+      tags:
+        - always
+
   tasks:
     - name: Import production system tasks
       ansible.builtin.import_tasks: ../../../tasks/system.yml

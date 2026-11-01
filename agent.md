@@ -323,7 +323,9 @@ value equivalence, unique definitions, and scalar/list/boolean host precedence.
 
 The NVIDIA tests import the production `tasks/system.yml` under
 `--tags nvidia`, including its real validation, conditions, templating, and tag
-selection. The Python harness makes that execution safe by resolving Pacman to
+selection. The Python harness removes inherited Ansible settings and supplies
+its own configuration; a fixture pre-task rejects unexpected run/skip tags,
+privilege escalation, or mismatched redirected paths. It resolves Pacman to
 a no-op fixture module, redirecting Limine and mkinitcpio paths into a temporary
 directory, disabling privilege escalation, and replacing the initramfs handler
 with a debug marker. A fail-closed UFW fixture permits task-file parsing but

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,11 +84,13 @@ class NvidiaGatingTest(unittest.TestCase):
         local_temp.mkdir(parents=True, exist_ok=True)
         remote_temp.mkdir(parents=True, exist_ok=True)
 
-        environment = os.environ.copy()
-        environment.pop("ANSIBLE_CONFIG", None)
-        environment.pop("ANSIBLE_INVENTORY", None)
+        config = case["case"] / "ansible.cfg"
+        config.write_text("[defaults]\nretry_files_enabled = False\n", encoding="utf-8")
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith("ANSIBLE_")}
         environment.update(
             {
+                "ANSIBLE_CONFIG": str(config),
                 "ANSIBLE_COLLECTIONS_PATH": str(FIXTURE_COLLECTIONS),
                 "ANSIBLE_LOCAL_TEMP": str(local_temp),
                 "ANSIBLE_REMOTE_TEMP": str(remote_temp),
@@ -121,9 +124,10 @@ class NvidiaGatingTest(unittest.TestCase):
         self.assertEqual(len(pacman_lines), 1, result.stdout)
         self.assertIn(str(PACMAN_STUB.resolve()), pacman_lines[0])
 
-    def run_case(self, case, use_nvidia=USE_DEFAULT):
+    def run_case(self, case, use_nvidia=USE_DEFAULT, tags="nvidia"):
         extra_vars = {
             "ansible_become": False,
+            "fixture_runtime_root": str(case["runtime_root"]),
             "ansible_python_interpreter": "/usr/bin/python",
             "limine_conf_path": str(case["limine_path"]),
             "mkinitcpio_dropin_dir": str(case["dropin_dir"]),
@@ -137,7 +141,7 @@ class NvidiaGatingTest(unittest.TestCase):
             str(case["inventory_root"] / "inventory.ini"),
             str(FIXTURE_PLAYBOOK),
             "--tags",
-            "nvidia",
+            tags,
             "-v",
             "--extra-vars",
             json.dumps(extra_vars),
@@ -206,6 +210,43 @@ class NvidiaGatingTest(unittest.TestCase):
             self.assertEqual(self.package_calls(second.stdout), [])
             self.assertEqual(case["limine_path"].read_text(encoding="utf-8"), ORIGINAL_LIMINE)
             self.assertNotIn(HANDLER_MARKER, second.stdout)
+
+    def test_ambient_ansible_settings_are_ignored(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-nvidia-ambient-") as directory:
+            case = self.prepare_case(Path(directory), "ambient")
+            hostile_config = case["case"] / "ambient.cfg"
+            hostile_config.write_text("[tags]\nrun = all\nskip = always\n", encoding="utf-8")
+            with patch.dict(os.environ, {
+                "ANSIBLE_CONFIG": str(hostile_config),
+                "ANSIBLE_RUN_TAGS": "all",
+                "ANSIBLE_SKIP_TAGS": "always",
+                "ANSIBLE_BECOME": "true",
+                "ANSIBLE_COLLECTIONS_PATH": "/nonexistent-fixture-collections",
+            }):
+                environment = self.ansible_environment(case)
+                # Fail before execution if the isolation regresses, including
+                # when the test suite is invoked as root.
+                for key in ("ANSIBLE_RUN_TAGS", "ANSIBLE_SKIP_TAGS", "ANSIBLE_BECOME"):
+                    self.assertNotIn(key, environment)
+                self.assertEqual(environment["ANSIBLE_CONFIG"], str(case["case"] / "ansible.cfg"))
+                self.assertEqual(environment["ANSIBLE_COLLECTIONS_PATH"], str(FIXTURE_COLLECTIONS))
+                self.assert_stub_resolution(case)
+                result = self.run_case(case, False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.package_calls(result.stdout), [])
+            self.assertEqual(case["limine_path"].read_text(encoding="utf-8"), ORIGINAL_LIMINE)
+            self.assertEqual((case["dropin_dir"] / "nvidia_btrfs.conf").read_text(encoding="utf-8"), FALSE_DROPIN)
+
+    def test_unexpected_run_tags_fail_before_production_tasks(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-nvidia-tag-guard-") as directory:
+            case = self.prepare_case(Path(directory), "unexpected-tags")
+            self.assert_stub_resolution(case)
+            result = self.run_case(case, False, tags="all")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("NVIDIA fixture safety boundary violated", result.stdout + result.stderr)
+            self.assertEqual(self.package_calls(result.stdout), [])
+            self.assertFalse(case["dropin_dir"].exists())
+            self.assertEqual(case["limine_path"].read_text(encoding="utf-8"), ORIGINAL_LIMINE)
 
     def test_non_boolean_values_fail_before_any_tagged_mutation(self):
         with tempfile.TemporaryDirectory(prefix="ansible-nvidia-invalid-") as directory:

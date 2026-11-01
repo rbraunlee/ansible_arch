@@ -193,8 +193,9 @@ python -m unittest discover -s tests -v
 
 Run the NVIDIA coverage through the Python test runner. Do not execute
 `tests/fixtures/nvidia_gating/playbook.yml` directly: the test harness supplies
-the no-op Pacman module, temporary filesystem paths, disabled privilege
-escalation, and a debug-only initramfs handler needed to make the run safe.
+an isolated Ansible configuration, the no-op Pacman module, temporary filesystem
+paths, disabled privilege escalation, and a debug-only initramfs handler. The
+fixture also rejects unexpected effective run/skip tags before production tasks.
 
 Those tests import the real production system tasks and exercise their
 templating and tag selection, but they do not install packages, run
