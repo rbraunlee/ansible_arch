@@ -337,8 +337,10 @@ controls and is unsupported.
 
 The safe suite does not install packages, run `mkinitcpio`, change a real
 Limine configuration, exercise services/firewall, detect hardware, or apply the
-complete workstation. Full application plus an unchanged repeat on an
-authorized disposable guest is a separate acceptance stage. Physical NVIDIA
+complete workstation. Full application and a repeat on an authorized disposable
+guest are separate acceptance checks. Distinguish intentional upstream package
+or dotfiles updates from unexpected configuration changes; a rolling update
+does not guarantee a zero-change repeat. Physical NVIDIA
 boot, modesetting, and graphics acceptance is another separate stage when
 applicable. Neither stage is implied by a passing isolated suite, and this
 documentation does not claim that either has run.
@@ -354,6 +356,7 @@ documentation does not claim that either has run.
 - Added error handling for AUR operations
 
 **Improved:**
+- Moved all package lists to `group_vars/all.yml` (historical layout, now superseded)
 - Split global defaults across automatically loaded `group_vars/all/` mappings
 - Added strict boolean NVIDIA gating with a Btrfs-only disabled path
 - Added block/rescue for AUR task isolation
