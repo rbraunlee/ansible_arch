@@ -1,0 +1,6 @@
+---
+# User configuration
+username: "{{ ansible_user | default('rbl') }}"
+
+# Bootloader configuration
+limine_conf_path: "/boot/limine/limine.conf"

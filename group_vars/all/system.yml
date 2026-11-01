@@ -1,0 +1,18 @@
+---
+# System packages
+system_packages:
+  - python-pexpect
+  - base-devel
+  - acl
+  - linux-zen
+  - linux-zen-headers
+  - linux-lts
+  - linux-lts-headers
+  - git
+  - rust
+  - snapper
+  - snap-pac
+  - ufw
+  - iwd
+  - bluez
+  - bluez-utils

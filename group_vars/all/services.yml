@@ -1,0 +1,6 @@
+---
+# Services to enable and start
+enable_services:
+  - NetworkManager
+  - bluetooth
+  - ufw

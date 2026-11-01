@@ -1,0 +1,9 @@
+---
+# NVIDIA packages
+nvidia_packages:
+  - nvidia-dkms
+  - nvidia-utils
+  - libva-nvidia-driver
+  - nvidia-settings
+
+use_nvidia: true
