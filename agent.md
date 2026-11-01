@@ -16,11 +16,29 @@ main.yml
 └── tasks/zap.yml        (5/5) - Zsh plugins
 ```
 
-### Variable Inheritance Chain
+### Variable Layout and Precedence
 
-1. **`group_vars/all.yml`**: Global defaults (user-editable)
-2. **`main.yml vars`**: Play-specific overrides
-3. **`ansible_facts`**: Runtime system detection
+Ansible automatically loads the mappings in `group_vars/all/`; the playbook
+does not use `include_vars` or `import_vars`. The concern files are:
+
+- `base.yml`: `username` and `limine_conf_path`
+- `system.yml`: `system_packages`
+- `desktop.yml`: `desktop_packages` and `audio_packages`
+- `graphics.yml`: `nvidia_packages` and `use_nvidia`
+- `services.yml`: `enable_services`
+- `aur.yml`: `aur_packages`
+- `dotfiles.yml`: the complete `dotfiles` mapping
+
+The split preserves the previous values, list order, and Jinja expressions.
+`use_nvidia: true` is the only added default. `host_vars/localhost.yml` is an
+empty mapping with commented examples, ready for machine-specific overrides.
+
+For the relevant inventory layers, group defaults are lower precedence than
+host variables; play variables and command-line extra vars have higher
+precedence. Scalars override scalars, but lists replace lists rather than merge.
+Nested mappings should be written as mappings, not dotted YAML keys. In
+particular, a host override for `dotfiles` must repeat its complete `repo`,
+`dest`, and `subdirs` structure.
 
 ## Task Module Details
 
@@ -29,21 +47,40 @@ main.yml
 **Responsibilities:**
 - Enable pacman ParallelDownloads for faster installs
 - Install dual kernel setup (Zen + LTS for rollback safety)
-- NVIDIA DKMS drivers with early KMS support
+- Optional NVIDIA DKMS drivers with early KMS support
 - Firewall configuration via UFW
 - NetworkManager with iwd backend
 - Create `aur_builder` system user for secure AUR builds
 
 **Key Handlers:**
-- `Regenerate initramfs`: Triggered after NVIDIA module configuration
-  - Modifies `/etc/mkinitcpio.conf.d/nvidia_btrfs.conf`
+- `Regenerate initramfs`: Triggered when the managed module drop-in changes
+  - The copy task manages `/etc/mkinitcpio.conf.d/nvidia_btrfs.conf`
   - Runs `mkinitcpio -P` to rebuild initramfs
 
 **NVIDIA Configuration:**
-```
-/etc/mkinitcpio.conf.d/nvidia_btrfs.conf
-└── MODULES=(btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm)
-```
+
+- The first system task validates that `use_nvidia` is an actual YAML boolean.
+  Its `always` tag ensures `--tags nvidia` cannot skip validation.
+- The default/true path installs the unchanged `nvidia_packages` list, adds
+  `nvidia_drm.modeset=1` to `limine_conf_path`, and renders:
+
+  ```text
+  MODULES=(btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm)
+  ```
+
+- The false path skips NVIDIA package and Limine tasks, while still creating
+  the mkinitcpio directory and rendering the shared Btrfs content:
+
+  ```text
+  MODULES=(btrfs)
+  ```
+
+- The `nvidia` tag covers the package, Limine, directory, and drop-in tasks.
+- False does not uninstall packages or remove a Limine flag left by a previous
+  true run. Hardware detection and cleanup migrations are intentionally absent.
+- `mkinitcpio_dropin_dir` defaults to `/etc/mkinitcpio.conf.d`. The override
+  exists for safe test redirection and does not change the system default.
+- Limine remains a prerequisite for the overall workstation deployment.
 
 ### desktop.yml
 
@@ -117,7 +154,7 @@ stow -v -d ~/.dotfiles/<subdir> -t /home/<username> --stow <app>
 
 **System/Official packages:**
 ```yaml
-# In group_vars/all.yml
+# In group_vars/all/system.yml
 system_packages:
   - <existing>...
   - new-package-name
@@ -125,7 +162,7 @@ system_packages:
 
 **AUR packages:**
 ```yaml
-# In group_vars/all.yml
+# In group_vars/all/aur.yml
 aur_packages:
   - brave-bin
   - new-aur-package
@@ -135,23 +172,50 @@ aur_packages:
 
 **Enable at boot:**
 ```yaml
-# In group_vars/all.yml
+# In group_vars/all/services.yml
 enable_services:
   - NetworkManager
   - bluetooth
   - new-service-name
 ```
 
-### Modifying Boot Parameters
+### Host Overrides
 
-**Add kernel params (NVIDIA example):**
+Keep group defaults reusable and place machine-specific values in
+`host_vars/localhost.yml`. The checked-in file remains an empty mapping until
+overrides are needed:
+
 ```yaml
-# In group_vars/all.yml
-limine_conf_path: "/boot/limine/limine.conf"
+---
+username: "workstation-user"
 
-# Edit tasks/system.yml - NVIDIA Early Modesetting task
-# Add: nouveau.modeset=0 nvidia_drm.modeset=1 nvidia_drm.fbdev=1
+# This list replaces desktop_packages; it does not extend it.
+desktop_packages:
+  - hyprland
+  - firefox
+
+use_nvidia: false
+
+# Override the complete nested mapping. Dotted keys are not supported here.
+dotfiles:
+  repo: "https://example.invalid/owner/dotfiles.git"
+  dest: "/home/{{ username }}/.dotfiles"
+  subdirs:
+    - common
+    - linux
 ```
+
+Both accepted `use_nvidia` values are YAML booleans. Strings, integers, null,
+lists, and mappings fail before system mutations. JSON preserves the type for a
+one-run command-line override on an intended target:
+
+```bash
+ansible-playbook -i inventory.ini main.yml --extra-vars '{"use_nvidia": false}'
+```
+
+Do not use `--extra-vars use_nvidia=false`; that form supplies a string and is
+rejected. When NVIDIA is enabled, `limine_conf_path` continues to identify the
+Limine configuration that receives `nvidia_drm.modeset=1`.
 
 ## Maintenance Operations
 
@@ -161,30 +225,35 @@ limine_conf_path: "/boot/limine/limine.conf"
 ansible-galaxy collection install --force -r requirements.yml
 ```
 
-### Dry Run (Check Mode)
+### Prepared-Target Execution and Rolling Updates
+
+The inventory targets the local machine. Commands in this subsection perform
+workstation operations and belong only on the intended, prepared Arch target;
+they are not controller validation commands.
+
+The system task performs a full `pacman -Syu` before package installation, in
+line with Arch's rolling-release model. Partial upgrades remain unsupported.
+The modular-variable and NVIDIA changes do not alter that update policy or any
+package-list default.
+
+For verbose target execution:
 
 ```bash
-ansible-playbook main.yml --check
-```
+# Verbosity level 1
+ansible-playbook -i inventory.ini main.yml -v
 
-### Verbose Execution
-
-```bash
-# Debug level 1 (default)
-ansible-playbook main.yml -v
-
-# Debug level 2 (task details)
-ansible-playbook main.yml -vvv
+# Verbosity level 3
+ansible-playbook -i inventory.ini main.yml -vvv
 ```
 
 ### Re-run Specific Task
 
 ```bash
 # Start from specific task
-ansible-playbook main.yml --start-at-task="Install AUR Packages"
+ansible-playbook -i inventory.ini main.yml --start-at-task="Install AUR Packages"
 
 # Start from specific play
-ansible-playbook main.yml --step
+ansible-playbook -i inventory.ini main.yml --step
 ```
 
 ## Error Handling
@@ -232,27 +301,47 @@ the note and current target, remove the Stow link if present, then copy the
 backup back to its original path with metadata preserved (for example `cp -p`).
 Do not move or overwrite the original backup while verifying the restoration.
 
-## Testing
+## Testing and Verification Boundaries
 
-### Unit Test Tasks
+### Safe Controller Validation
 
-```bash
-# Test system setup only
-ansible-playbook -i inventory.ini <<<'---
-- import_playbook: main.yml
-  tasks:
-    - import_tasks: tasks/system.yml'
-```
-
-### Validate Configuration
+These commands parse and lint the playbook and run isolated tests without
+applying `main.yml`:
 
 ```bash
-# Syntax check
-ansible-playbook main.yml --syntax-check
-
-# YAML linting
-ansible-lint main.yml tasks/*.yml
+ansible-playbook -i inventory.ini main.yml --syntax-check
+ansible-lint \
+  main.yml tasks/*.yml group_vars/all/*.yml host_vars/localhost.yml \
+  tests/fixtures/variable_loading/*.yml \
+  tests/fixtures/nvidia_gating/playbook.yml
+python -m unittest discover -s tests -v
 ```
+
+The variable-loading tests create temporary old/new layouts and invoke real
+Ansible loading for explicit inventory and implicit localhost. They verify
+value equivalence, unique definitions, and scalar/list/boolean host precedence.
+
+The NVIDIA tests import the production `tasks/system.yml` under
+`--tags nvidia`, including its real validation, conditions, templating, and tag
+selection. The Python harness makes that execution safe by resolving Pacman to
+a no-op fixture module, redirecting Limine and mkinitcpio paths into a temporary
+directory, disabling privilege escalation, and replacing the initramfs handler
+with a debug marker. A fail-closed UFW fixture permits task-file parsing but
+must never be selected by the tagged run.
+
+Always invoke this coverage through the Python test runner. Running
+`tests/fixtures/nvidia_gating/playbook.yml` directly omits the harness safety
+controls and is unsupported.
+
+### Verification Not Covered by Isolated Tests
+
+The safe suite does not install packages, run `mkinitcpio`, change a real
+Limine configuration, exercise services/firewall, detect hardware, or apply the
+complete workstation. Full application plus an unchanged repeat on an
+authorized disposable guest is a separate acceptance stage. Physical NVIDIA
+boot, modesetting, and graphics acceptance is another separate stage when
+applicable. Neither stage is implied by a passing isolated suite, and this
+documentation does not claim that either has run.
 
 ## Changelog
 
@@ -265,7 +354,8 @@ ansible-lint main.yml tasks/*.yml
 - Added error handling for AUR operations
 
 **Improved:**
-- Moved all package lists to `group_vars/all.yml`
+- Split global defaults across automatically loaded `group_vars/all/` mappings
+- Added strict boolean NVIDIA gating with a Btrfs-only disabled path
 - Added block/rescue for AUR task isolation
 - Better become_user handling for dotfiles
 
