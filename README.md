@@ -195,7 +195,9 @@ Run the NVIDIA coverage through the Python test runner. Do not execute
 `tests/fixtures/nvidia_gating/playbook.yml` directly: the test harness supplies
 an isolated Ansible configuration, the no-op Pacman module, temporary filesystem
 paths, disabled privilege escalation, and a debug-only initramfs handler. The
-fixture also rejects unexpected effective run/skip tags before production tasks.
+fixture also checks effective run/skip tags before production tasks when its
+`always` guard is selected. Direct `--skip-tags always` execution bypasses
+that guard; the supported Python runner never supplies skip tags.
 
 Those tests import the real production system tasks and exercise their
 templating and tag selection, but they do not install packages, run
