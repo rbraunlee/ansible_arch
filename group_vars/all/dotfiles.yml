@@ -1,0 +1,8 @@
+---
+# Dotfiles configuration
+dotfiles:
+  repo: "https://github.com/BraunRudolf/.dotfiles.git"
+  dest: "/home/{{ username }}/.dotfiles"
+  subdirs:
+    - common
+    - linux

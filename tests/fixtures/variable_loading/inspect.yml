@@ -1,0 +1,28 @@
+---
+- name: Inspect automatically loaded workstation variables
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Report effective variables for the regression harness
+      ansible.builtin.debug:
+        msg: >-
+          VARIABLE_SNAPSHOT={{
+            {
+              'inventory_hostname': inventory_hostname,
+              'inventory_file': inventory_file | default('__IMPLICIT__'),
+              'inventory_sources': ansible_inventory_sources | default([]),
+              'values': {
+                'username': username,
+                'limine_conf_path': limine_conf_path,
+                'system_packages': system_packages,
+                'desktop_packages': desktop_packages,
+                'audio_packages': audio_packages,
+                'nvidia_packages': nvidia_packages,
+                'use_nvidia': use_nvidia | default('__MISSING__'),
+                'enable_services': enable_services,
+                'aur_packages': aur_packages,
+                'dotfiles': dotfiles
+              }
+            } | to_json | b64encode
+          }}

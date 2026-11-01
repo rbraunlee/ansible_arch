@@ -14,6 +14,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "tasks/bashrc_policy.py"
+STOW = Path(os.environ.get("STOW_BINARY", "/usr/bin/stow"))
 
 
 class BashrcPolicyTest(unittest.TestCase):
@@ -41,6 +42,17 @@ class BashrcPolicyTest(unittest.TestCase):
             capture_output=True, text=True, cwd=cwd or self.home,
         )
         return process
+
+    def run_stow(self, package, *, target=None):
+        if not STOW.is_file():
+            self.skipTest(f"GNU Stow executable not found: {STOW}")
+        environment = os.environ.copy()
+        environment["HOME"] = str(self.home)
+        return subprocess.run(
+            [str(STOW), "-v", "-d", str(package.parent), "-t",
+             str(target or self.home), "--stow", package.name],
+            capture_output=True, text=True, cwd=self.home, env=environment,
+        )
 
     def outcome(self, process):
         self.assertEqual(process.returncode, 0, process.stderr)
@@ -170,9 +182,45 @@ class BashrcPolicyTest(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(), b"existing\n")
         self.assertFalse(self.backups.exists())
 
-    def test_local_ignore_cannot_remove_an_untouched_default(self):
+    def test_unrelated_local_ignore_is_scoped_to_its_real_stow_package(self):
+        tmux = self.home.parent / "checkout" / "common" / "tmux"
+        (tmux / ".config" / "tmux" / "plugins" / "example").mkdir(parents=True)
+        (tmux / ".config" / "tmux" / "tmux.conf").write_text("set -g mouse on\n")
+        (tmux / "README.md").write_text("package notes\n")
+        (tmux / ".gitignore").write_text("plugins/\n")
+        (tmux / ".stow-local-ignore").write_text(
+            "^/README\\.md$\n"
+            "^/\\.gitignore$\n"
+            "^/\\.config/tmux/plugins(/|$)\n"
+        )
+        (self.home / ".config" / "tmux").mkdir(parents=True)
         self.target.write_bytes(b"Arch default\n")
-        (self.source.parent / ".stow-local-ignore").write_text(r"^\.bashrc$" + "\n")
+        packages = [str(tmux), str(self.source.parent)]
+
+        self.assertTrue(self.outcome(self.run_policy(packages=packages))["changed"])
+        tmux_stow = self.run_stow(tmux)
+        self.assertEqual(tmux_stow.returncode, 0, tmux_stow.stderr)
+        self.assertTrue((self.home / ".config" / "tmux" / "tmux.conf").is_symlink())
+        self.assertFalse((self.home / "README.md").exists())
+        self.assertFalse((self.home / ".gitignore").exists())
+        self.assertFalse((self.home / ".config" / "tmux" / "plugins").exists())
+
+        bash_stow = self.run_stow(self.source.parent)
+        self.assertEqual(bash_stow.returncode, 0, bash_stow.stderr)
+        self.assertTrue(self.target.is_symlink())
+        self.assertEqual(self.target.resolve(), self.source.resolve())
+        self.assertFalse(
+            self.outcome(self.run_policy(packages=packages, mode="--finalize"))["changed"]
+        )
+
+    def test_bash_package_local_ignore_suppresses_real_stow_and_preserves_default(self):
+        self.target.write_bytes(b"Arch default\n")
+        (self.source.parent / ".stow-local-ignore").write_text(r"^/\.bashrc$" + "\n")
+        probe = self.home.parent / "probe"
+        probe.mkdir()
+        stow = self.run_stow(self.source.parent, target=probe)
+        self.assertEqual(stow.returncode, 0, stow.stderr)
+        self.assertFalse((probe / ".bashrc").exists())
         result = self.run_policy()
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.target.read_bytes(), b"Arch default\n")
@@ -191,24 +239,57 @@ class BashrcPolicyTest(unittest.TestCase):
                 self.assertEqual(self.target.read_bytes(), original)
                 self.assertFalse(self.backups.exists())
 
-    def test_global_and_stowrc_configuration_cannot_remove_customized_target(self):
-        other = self.home.parent / "checkout" / "common" / "other"
-        other.mkdir(parents=True)
-        locations = (self.home / ".stow-global-ignore",
-                     self.home / ".stowrc",
-                     self.source.parent.parent / ".stow-global-ignore",
-                     other / ".stowrc",
-                     other / ".stow-global-ignore",
-                     self.home.parent / ".stowrc")
-        self.target.write_bytes(b"important configuration\n")
-        for config in locations:
+    def test_effective_global_ignore_and_stowrc_suppress_real_stow_before_policy_mutation(self):
+        cases = (
+            (self.home / ".stow-global-ignore", "^/[.]bashrc$\n"),
+            (self.home / ".stowrc", "--ignore=^[.]bashrc$\n"),
+        )
+        for config, content in cases:
             with self.subTest(config=config):
-                config.write_text("--ignore=.bashrc\n")
-                outcome = self.run_policy(packages=self.packages + [str(other)], cwd=self.home.parent)
+                config.write_text(content)
+                probe = self.home.parent / f"probe-{config.name}"
+                probe.mkdir()
+                stow = self.run_stow(self.source.parent, target=probe)
+                self.assertEqual(stow.returncode, 0, stow.stderr)
+                self.assertFalse((probe / ".bashrc").exists())
+
+                self.target.write_bytes(b"important configuration\n")
+                outcome = self.run_policy()
                 self.assertNotEqual(outcome.returncode, 0, outcome.stdout)
                 self.assertEqual(self.target.read_bytes(), b"important configuration\n")
                 self.assertFalse(self.backups.exists())
                 config.unlink()
+
+    def test_cross_package_global_config_suppresses_later_real_stow_and_is_rejected(self):
+        other = self.home.parent / "checkout" / "common" / "session"
+        other.mkdir(parents=True)
+        cases = (
+            (".stow-global-ignore", "^/[.]bashrc$\n"),
+            (".stowrc", "--ignore=^[.]bashrc$\n"),
+        )
+        for filename, content in cases:
+            with self.subTest(filename=filename):
+                package_config = other / filename
+                package_config.write_text(content)
+                self.target.write_bytes(b"Arch default\n")
+                packages = [str(other), str(self.source.parent)]
+                policy = self.run_policy(packages=packages)
+                self.assertNotEqual(policy.returncode, 0, policy.stdout)
+                self.assertEqual(self.target.read_bytes(), b"Arch default\n")
+                self.assertFalse(self.backups.exists())
+
+                first_stow = self.run_stow(other)
+                self.assertEqual(first_stow.returncode, 0, first_stow.stderr)
+                installed_config = self.home / filename
+                self.assertTrue(installed_config.is_symlink())
+                self.assertEqual(installed_config.resolve(), package_config.resolve())
+                bash_stow = self.run_stow(self.source.parent)
+                self.assertEqual(bash_stow.returncode, 0, bash_stow.stderr)
+                self.assertFalse(self.target.is_symlink())
+                self.assertEqual(self.target.read_bytes(), b"Arch default\n")
+
+                installed_config.unlink()
+                package_config.unlink()
 
     def test_unmanaged_bashrc_is_not_migrated_despite_stow_config(self):
         self.source.unlink()

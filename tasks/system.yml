@@ -1,4 +1,14 @@
 ---
+- name: Validate NVIDIA feature flag
+  ansible.builtin.assert:
+    that:
+      - use_nvidia is defined
+      - use_nvidia is boolean
+    fail_msg: use_nvidia must be a YAML boolean (true or false).
+    quiet: true
+  tags:
+    - always
+
 - name: Enable ParallelDownloads
   ansible.builtin.lineinfile:
     path: /etc/pacman.conf
@@ -39,6 +49,7 @@
     name: "{{ nvidia_packages }}"
     state: present
   become: true
+  when: use_nvidia
   tags: ['nvidia']
 
 - name: Enable NVIDIA Early Modesetting in Limine
@@ -48,21 +59,25 @@
     regexp: '^(\s*cmdline: (?!.*nvidia_drm\.modeset=1).*)'
     replace: '\1 nvidia_drm.modeset=1'
   become: true
+  when: use_nvidia
   tags: ['nvidia']
 
 - name: Ensure mkinitcpio drop-in directory exists
   ansible.builtin.file:
-    path: /etc/mkinitcpio.conf.d
+    path: "{{ mkinitcpio_dropin_dir | default('/etc/mkinitcpio.conf.d') }}"
     state: directory
     mode: '0755'
   become: true
+  tags: ['nvidia']
 
 - name: Configure Early KMS and filesystem modules via drop-in
   ansible.builtin.copy:
-    dest: /etc/mkinitcpio.conf.d/nvidia_btrfs.conf
+    dest: >-
+      {{ mkinitcpio_dropin_dir | default('/etc/mkinitcpio.conf.d')
+      }}/nvidia_btrfs.conf
     content: |
       # Ansible managed: Early KMS for NVIDIA and BTRFS support
-      MODULES=(btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm)
+      MODULES=(btrfs{% if use_nvidia %} nvidia nvidia_modeset nvidia_uvm nvidia_drm{% endif %})
     mode: '0644'
   notify: Regenerate initramfs
   become: true

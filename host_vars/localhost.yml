@@ -1,0 +1,7 @@
+---
+# Per-host override examples (leave this mapping empty by default):
+# username: "another-user"
+# desktop_packages:
+#   - hyprland
+# use_nvidia: false
+{}

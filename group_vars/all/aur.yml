@@ -1,0 +1,4 @@
+---
+# AUR packages (add more as needed)
+aur_packages:
+  - brave-bin
