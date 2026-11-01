@@ -1,0 +1,14 @@
+---
+- name: Exercise production NVIDIA tasks against redirected fixture paths
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Import production system tasks
+      ansible.builtin.import_tasks: ../../../tasks/system.yml
+
+  handlers:
+    - name: Regenerate initramfs
+      ansible.builtin.debug:
+        msg: TICKET5_INITRAMFS_HANDLER_RAN
