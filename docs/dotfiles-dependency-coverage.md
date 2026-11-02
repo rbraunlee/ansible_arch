@@ -10,11 +10,9 @@ headless controller or VM exercised a graphical session.
 - Read-only local dotfiles comparison: `0eee62fc889970b956f869008dbc5f6e11e7fa1f`.
   It is two commits ahead; the diff changes only `common/scripts` and
   `common/tmux` focus behavior and does not change this dependency set.
-- The corrected audit files named in ticket #9 were unavailable at
-  `/tmp/dotfiles-dependency-audit/` in this checkout. This matrix therefore
-  re-audits the pinned source revision and preserves the corrected issue #8
-  boundaries: curl is transitive through Git/Pacman, GnuPG through Pacman,
-  playerctl through Waybar, and compiler/make through `base-devel`.
+- The matrix records direct and transitive coverage separately: curl is
+  supplied through Git/Pacman, GnuPG through Pacman, playerctl through Waybar,
+  and compiler/make through `base-devel`.
 - Official Arch metadata was read on 2026-11-02 without synchronizing a package
   database or installing anything. The ticket #9 identifiers resolve in Extra:
   [`networkmanager`](https://archlinux.org/packages/extra/x86_64/networkmanager/),
@@ -70,7 +68,7 @@ package list, so an override must include any desired defaults.
 | `linux/bash` | `linux/bash/.bashrc` | **External bootstrap**: Bash comes from the Arch base. Its `nvim` and `rg` aliases use the direct defaults; legacy aliases remain **optional/manual** rather than defaults. |
 | `linux/hypr` | `linux/hypr/.config/hypr/hyprland.lua`, `start-hypridle.sh`, `hypridle.conf` | **Direct default**: `hyprland`, `hyprpaper`, `waybar`, `mako`, `flameshot`, `wofi`, portals, clipboard tools, `hypridle`, `hyprlock`, and `dolphin`. `NetworkManager` is directly installed with system foundations for its enabled service; `pgrep` is from the base system. Idle/lock behavior needs an authorized graphical-session gate. |
 | `linux/swappy` | `linux/swappy/.config/swappy/config` | **Optional/manual**: install `swappy` only if this screenshot editor is selected. |
-| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Platform/hardware excluded**: `voxtype-cuda`, `wtype`, and `pipewire-alsa`, backend/model acquisition, microphone selection, and user-service adoption await Ticket #10's checked profile/integration decision. |
+| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Pending feature integration**: provider choice (including `voxtype-cuda`, `wtype`, and `pipewire-alsa` for the CUDA path), backend/model acquisition, microphone selection, and user-service adoption await Ticket #10. The current upstream autostart still invokes Voxtype, so this remains an unresolved default-session gap until that integration is complete. |
 | `linux/waybar` | `linux/waybar/.config/waybar/config.jsonc`, `scripts/update-sys.sh`, `style.css` | **Direct default**: `waybar`, `pacman-contrib` for `checkupdates`, `hyprlock`, `otf-font-awesome`, and `otf-comicshanns-nerd` for the configured ComicShanns face. `playerctl` is **transitive default** through Waybar. `paru` is supplied by the existing AUR task. |
 | `linux/wofi` | `linux/wofi/.config/wofi/` | **Direct default**: `wofi`; its generic monospace choice needs no additional font package. |
 | `linux/zsh` | `linux/zsh/.zshrc` | **Direct default**: `zsh` and `starship`; it shares the common Zsh providers. |
@@ -84,9 +82,11 @@ package list, so an override must include any desired defaults.
 No optional profile, Voxtype/NVIDIA environment treatment, dotfiles mutation, or
 runtime validation is part of this change.
 
-There are no remaining confirmed missing package identifiers on the reviewed
-default path. The deliberately unprovisioned entries in the matrix are optional,
-manual, or platform/hardware-specific rather than silently assumed defaults.
+The default package additions above are covered at source level. Voxtype
+autostart and NVIDIA-specific Hyprland environment settings remain pending
+Ticket #10; classifying their providers as optional does not itself disable
+the current upstream behavior. Other optional and manual prerequisites remain
+as listed in the matrix.
 
 ## Runtime acceptance gate — separate authorization required
 
