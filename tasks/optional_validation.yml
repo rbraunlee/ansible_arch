@@ -1,0 +1,59 @@
+---
+- name: Validate optional profile mapping shape
+  ansible.builtin.assert:
+    that:
+      - optional_profiles is mapping
+      - >-
+        optional_profiles | dict2items | map(attribute='key') | list | sort
+        == ['archive_helpers', 'media_recording', 'mirror_tools', 'swappy', 'tmux_focus', 'voxtype']
+      - optional_profiles.voxtype is mapping
+      - >-
+        optional_profiles.voxtype | dict2items | map(attribute='key') | list | sort
+        == ['enabled', 'provider']
+      - optional_hyprland_overlay is mapping
+      - >-
+        optional_hyprland_overlay | dict2items | map(attribute='key') | list | sort
+        == ['contract_marker', 'path']
+    fail_msg: >-
+      optional_profiles and optional_hyprland_overlay must use the documented
+      complete mappings; unknown or missing keys are rejected.
+    quiet: true
+  tags:
+    - always
+
+- name: Validate optional profile boolean flags
+  ansible.builtin.assert:
+    that:
+      - optional_profiles.tmux_focus is boolean
+      - optional_profiles.swappy is boolean
+      - optional_profiles.media_recording is boolean
+      - optional_profiles.archive_helpers is boolean
+      - optional_profiles.mirror_tools is boolean
+      - optional_profiles.voxtype.enabled is boolean
+      - use_nvidia is boolean
+    fail_msg: Optional profile flags and use_nvidia must be YAML booleans.
+    quiet: true
+  tags:
+    - always
+
+- name: Validate Voxtype provider selection
+  ansible.builtin.assert:
+    that:
+      - optional_profiles.voxtype.provider is string
+      - optional_profiles.voxtype.provider in ['none', 'cuda']
+      - optional_profiles.voxtype.enabled == (optional_profiles.voxtype.provider != 'none')
+    fail_msg: >-
+      Voxtype is disabled only with provider none; an enabled Voxtype profile
+      must select a supported provider.
+    quiet: true
+  tags:
+    - always
+
+- name: Require NVIDIA for the CUDA Voxtype provider
+  ansible.builtin.assert:
+    that:
+      - optional_profiles.voxtype.provider != 'cuda' or use_nvidia
+    fail_msg: 'Voxtype provider cuda requires use_nvidia: true.'
+    quiet: true
+  tags:
+    - always

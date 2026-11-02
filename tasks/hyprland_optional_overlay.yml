@@ -1,0 +1,108 @@
+---
+- name: Read the Hyprland optional overlay contract
+  ansible.builtin.slurp:
+    src: "{{ dotfiles.dest }}/linux/hypr/.config/hypr/hyprland.lua"
+  register: hyprland_optional_overlay_contract
+  become: true
+  become_user: "{{ username }}"
+  tags:
+    - dotfiles
+    - optional
+
+- name: Require the reviewed Hyprland optional overlay contract
+  ansible.builtin.assert:
+    that:
+      - optional_hyprland_overlay.contract_marker in (hyprland_optional_overlay_contract.content | b64decode)
+      - "'ansible_arch/hyprland-optional.lua' in (hyprland_optional_overlay_contract.content | b64decode)"
+      - "'pcall(dofile, ansible_optional_path)' in (hyprland_optional_overlay_contract.content | b64decode)"
+      - "'if ansible_optional.voxtype_enabled then' in (hyprland_optional_overlay_contract.content | b64decode)"
+      - "'if ansible_optional.nvidia_environment then' in (hyprland_optional_overlay_contract.content | b64decode)"
+      - "'systemctl --user start voxtype.service' not in (hyprland_optional_overlay_contract.content | b64decode)"
+    fail_msg: >-
+      The cloned Hyprland Lua configuration does not implement the reviewed
+      ansible_arch optional-overlay contract. Refuse to Stow or patch it; apply
+      docs/hyprland-optional-overlay-v1.patch in the dotfiles repository first.
+    quiet: true
+  tags:
+    - dotfiles
+    - optional
+
+- name: Inspect the existing generated Hyprland optional overlay
+  ansible.builtin.stat:
+    path: "{{ optional_hyprland_overlay.path }}"
+    follow: false
+  register: optional_hyprland_overlay_stat
+  become: true
+  become_user: "{{ username }}"
+  tags:
+    - dotfiles
+    - optional
+
+- name: Refuse to replace a non-regular Hyprland optional overlay
+  ansible.builtin.assert:
+    that:
+      - >-
+        not optional_hyprland_overlay_stat.stat.exists
+        or (
+          optional_hyprland_overlay_stat.stat.isreg | default(false)
+          and not (optional_hyprland_overlay_stat.stat.islnk | default(false))
+        )
+    fail_msg: >-
+      Refusing to replace a non-regular optional overlay. The generated file
+      must not be a directory or a link into dotfiles/Stow-managed content.
+    quiet: true
+  tags:
+    - dotfiles
+    - optional
+
+- name: Read an existing generated Hyprland optional overlay
+  ansible.builtin.slurp:
+    src: "{{ optional_hyprland_overlay.path }}"
+  register: existing_optional_hyprland_overlay
+  when: optional_hyprland_overlay_stat.stat.exists
+  become: true
+  become_user: "{{ username }}"
+  tags:
+    - dotfiles
+    - optional
+
+- name: Refuse to replace an unowned Hyprland optional overlay
+  ansible.builtin.assert:
+    that:
+      - >-
+        not optional_hyprland_overlay_stat.stat.exists
+        or optional_hyprland_overlay.contract_marker
+           in (existing_optional_hyprland_overlay.content | b64decode)
+    fail_msg: >-
+      Refusing to replace an unowned optional overlay. Preserve the file and
+      move or review it before allowing Ansible to manage this generated path.
+    quiet: true
+  tags:
+    - dotfiles
+    - optional
+
+- name: Ensure the generated Hyprland optional overlay directory exists
+  ansible.builtin.file:
+    path: "{{ optional_hyprland_overlay.path | dirname }}"
+    state: directory
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: '0755'
+  become: true
+  become_user: "{{ username }}"
+  tags:
+    - dotfiles
+    - optional
+
+- name: Render the generated Hyprland optional overlay
+  ansible.builtin.template:
+    src: "{{ lookup('ansible.builtin.first_found', ['hyprland_optional_overlay.lua.j2']) }}"
+    dest: "{{ optional_hyprland_overlay.path }}"
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: '0644'
+  become: true
+  become_user: "{{ username }}"
+  tags:
+    - dotfiles
+    - optional

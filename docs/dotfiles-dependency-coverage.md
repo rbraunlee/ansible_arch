@@ -68,7 +68,7 @@ package list, so an override must include any desired defaults.
 | `linux/bash` | `linux/bash/.bashrc` | **External bootstrap**: Bash comes from the Arch base. Its `nvim` and `rg` aliases use the direct defaults; legacy aliases remain **optional/manual** rather than defaults. |
 | `linux/hypr` | `linux/hypr/.config/hypr/hyprland.lua`, `start-hypridle.sh`, `hypridle.conf` | **Direct default**: `hyprland`, `hyprpaper`, `waybar`, `mako`, `flameshot`, `wofi`, portals, clipboard tools, `hypridle`, `hyprlock`, and `dolphin`. `NetworkManager` is directly installed with system foundations for its enabled service; `pgrep` is from the base system. Idle/lock behavior needs an authorized graphical-session gate. |
 | `linux/swappy` | `linux/swappy/.config/swappy/config` | **Optional/manual**: install `swappy` only if this screenshot editor is selected. |
-| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Pending feature integration**: provider choice (including `voxtype-cuda`, `wtype`, and `pipewire-alsa` for the CUDA path), backend/model acquisition, microphone selection, and user-service adoption await Ticket #10. The current upstream autostart still invokes Voxtype, so this remains an unresolved default-session gap until that integration is complete. |
+| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Guarded pending integration**: Ticket #10 makes `voxtype-cuda`, `wtype`, and `pipewire-alsa` opt-in for the CUDA choice and validates NVIDIA selection. The current upstream source still autostarts Voxtype, so the dotfiles task refuses Stow until its maintainer adopts the reviewed external-overlay contract. Backend/model acquisition, microphone selection, and user-service adoption stay **manual**. |
 | `linux/waybar` | `linux/waybar/.config/waybar/config.jsonc`, `scripts/update-sys.sh`, `style.css` | **Direct default**: `waybar`, `pacman-contrib` for `checkupdates`, `hyprlock`, `otf-font-awesome`, and `otf-comicshanns-nerd` for the configured ComicShanns face. `playerctl` is **transitive default** through Waybar. `paru` is supplied by the existing AUR task. |
 | `linux/wofi` | `linux/wofi/.config/wofi/` | **Direct default**: `wofi`; its generic monospace choice needs no additional font package. |
 | `linux/zsh` | `linux/zsh/.zshrc` | **Direct default**: `zsh` and `starship`; it shares the common Zsh providers. |
@@ -82,11 +82,13 @@ package list, so an override must include any desired defaults.
 No optional profile, Voxtype/NVIDIA environment treatment, dotfiles mutation, or
 runtime validation is part of this change.
 
-The default package additions above are covered at source level. Voxtype
-autostart and NVIDIA-specific Hyprland environment settings remain pending
-Ticket #10; classifying their providers as optional does not itself disable
-the current upstream behavior. Other optional and manual prerequisites remain
-as listed in the matrix.
+The default package additions above are covered at source level. Ticket #10
+adds only opt-in helper/profile packages and a guarded Hyprland contract; it
+does not declare the current upstream Voxtype autostart or NVIDIA-specific
+environment settings resolved. Until the dotfiles maintainer adopts the
+reviewable contract, this playbook fails before Stow rather than silently
+deploying that source. Other optional and manual prerequisites remain as listed
+in the matrix.
 
 ## Runtime acceptance gate — separate authorization required
 
@@ -97,6 +99,7 @@ that the current repositories resolve every default identifier, that the new
 default binaries and `checkupdates` are present, and that the `NetworkManager`
 service can start under the target's intended network setup. A logged-in Hyprland
 session must separately verify Hypridle/Hyprlock, Dolphin, Waybar fonts/update
-display, portals, and clipboard/audio behavior. Voxtype remains excluded pending
-Ticket #10's profile decision. A controller test or headless VM does not satisfy
-this gate, and neither may substitute for suitable hardware/model/provider QA.
+display, portals, and clipboard/audio behavior. Voxtype additionally needs the
+upstream contract adoption plus provider/model/microphone and owner-selected
+user-service QA. A controller test or headless VM does not satisfy this gate,
+and neither may substitute for suitable hardware/model/provider QA.

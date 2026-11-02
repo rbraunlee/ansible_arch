@@ -32,6 +32,8 @@ NetworkManager, desktop, editor, update-helper, and font dependencies, replacing
 the obsolete `ttf-font-awesome` identifier; the full source-level rationale is
 in [the dotfiles dependency matrix](docs/dotfiles-dependency-coverage.md).
 `use_nvidia` remains a YAML boolean and defaults to `true`.
+Optional helper and Voxtype profiles are opt-in; see
+[optional profiles](docs/optional-profiles.md) before selecting one.
 
 Put machine-specific values in `host_vars/localhost.yml`. It is an empty mapping
 with commented examples in the repository. Use normal nested YAML mappings;
@@ -101,6 +103,7 @@ Global defaults are organized under `group_vars/all/`:
 - `services.yml`: enabled services
 - `aur.yml`: AUR packages
 - `dotfiles.yml`: complete repository, destination, and subdirectory mapping
+- `optional.yml`: opt-in helper profiles and the guarded Hyprland overlay
 
 ### NVIDIA Selection
 
@@ -168,6 +171,7 @@ git ls-remote https://github.com/BraunRudolf/.dotfiles.git
 │       ├── desktop.yml
 │       ├── dotfiles.yml
 │       ├── graphics.yml
+│       ├── optional.yml
 │       ├── services.yml
 │       └── system.yml
 ├── host_vars/
@@ -190,12 +194,13 @@ ansible-playbook -i inventory.ini main.yml --syntax-check
 ansible-lint \
   main.yml tasks/*.yml group_vars/all/*.yml host_vars/localhost.yml \
   tests/fixtures/variable_loading/*.yml \
-  tests/fixtures/nvidia_gating/playbook.yml
+  tests/fixtures/nvidia_gating/playbook.yml \
+  tests/fixtures/optional_profiles/playbook.yml
 python -m unittest discover -s tests -v
 ```
 
-Run the NVIDIA coverage through the Python test runner. Do not execute
-`tests/fixtures/nvidia_gating/playbook.yml` directly: the test harness supplies
+Run the NVIDIA and optional-profile coverage through the Python test runner. Do
+not execute either fixture playbook directly: the test harness supplies
 an isolated Ansible configuration, the no-op Pacman module, temporary filesystem
 paths, disabled privilege escalation, and a debug-only initramfs handler. The
 fixture also checks effective run/skip tags before production tasks when its

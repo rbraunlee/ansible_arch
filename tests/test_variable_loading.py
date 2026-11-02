@@ -27,6 +27,7 @@ EXPECTED_SPLIT_FILES = {
     "desktop.yml",
     "dotfiles.yml",
     "graphics.yml",
+    "optional.yml",
     "services.yml",
     "system.yml",
 }
@@ -54,6 +55,34 @@ EXPECTED_PACKAGE_DELTAS = {
             ("ttf-jetbrains-mono-nerd", "otf-font-awesome"),
             ("otf-font-awesome", "otf-comicshanns-nerd"),
         ),
+    },
+}
+EXPECTED_ADDED_DEFAULTS = {
+    "optional_profiles": {
+        "tmux_focus": False,
+        "swappy": False,
+        "media_recording": False,
+        "archive_helpers": False,
+        "mirror_tools": False,
+        "voxtype": {
+            "enabled": False,
+            "provider": "none",
+        },
+    },
+    "optional_profile_package_sets": {
+        "tmux_focus": ["tmux"],
+        "swappy": ["swappy"],
+        "media_recording": ["yt-dlp", "ffmpeg", "wf-recorder"],
+        "archive_helpers": ["unrar", "unzip", "ncompress", "7zip"],
+        "mirror_tools": ["reflector", "rate-mirrors", "expac"],
+        "voxtype": ["wtype", "pipewire-alsa"],
+    },
+    "optional_voxtype_aur_packages": {
+        "cuda": ["voxtype-cuda"],
+    },
+    "optional_hyprland_overlay": {
+        "path": "/home/{{ username }}/.config/ansible_arch/hyprland-optional.lua",
+        "contract_marker": "ansible_arch_optional_overlay_v1",
     },
 }
 
@@ -179,6 +208,10 @@ class VariableLoadingTest(unittest.TestCase):
         expected["username"] = "rbl"
         expected["dotfiles"]["dest"] = "/home/rbl/.dotfiles"
         expected["use_nvidia"] = "__MISSING__"
+        expected["optional_profiles"] = "__MISSING__"
+        expected["optional_profile_package_sets"] = "__MISSING__"
+        expected["optional_voxtype_aur_packages"] = "__MISSING__"
+        expected["optional_hyprland_overlay"] = "__MISSING__"
         return expected
 
     def expected_split_values(self):
@@ -193,6 +226,7 @@ class VariableLoadingTest(unittest.TestCase):
                 self.assertIn(anchor, packages)
                 self.assertNotIn(package, packages)
                 packages.insert(packages.index(anchor) + 1, package)
+        expected.update(copy.deepcopy(EXPECTED_ADDED_DEFAULTS))
         expected["use_nvidia"] = True
         return expected
 
@@ -230,6 +264,9 @@ class VariableLoadingTest(unittest.TestCase):
                 expected_split = self.expected_split_values()
                 expected_split["username"] = "rbl"
                 expected_split["dotfiles"]["dest"] = "/home/rbl/.dotfiles"
+                expected_split["optional_hyprland_overlay"]["path"] = (
+                    "/home/rbl/.config/ansible_arch/hyprland-optional.lua"
+                )
                 self.assertEqual(split["values"], expected_split)
 
     def test_host_vars_override_group_scalar_list_and_boolean(self):
@@ -237,6 +274,17 @@ class VariableLoadingTest(unittest.TestCase):
             "username": "fixture-user",
             "desktop_packages": ["fixture-desktop-one", "fixture-desktop-two"],
             "use_nvidia": False,
+            "optional_profiles": {
+                "tmux_focus": True,
+                "swappy": False,
+                "media_recording": False,
+                "archive_helpers": False,
+                "mirror_tools": False,
+                "voxtype": {
+                    "enabled": False,
+                    "provider": "none",
+                },
+            },
         }
         with tempfile.TemporaryDirectory(prefix="ansible-host-overrides-") as directory:
             parent = Path(directory)
@@ -252,6 +300,11 @@ class VariableLoadingTest(unittest.TestCase):
                 self.assertIs(values["use_nvidia"], False)
                 self.assertEqual(values["dotfiles"]["dest"], "/home/fixture-user/.dotfiles")
                 self.assertEqual(values["system_packages"], self.expected_split_values()["system_packages"])
+                self.assertEqual(values["optional_profiles"], overrides["optional_profiles"])
+                self.assertEqual(
+                    values["optional_hyprland_overlay"]["path"],
+                    "/home/fixture-user/.config/ansible_arch/hyprland-optional.lua",
+                )
 
 
 if __name__ == "__main__":

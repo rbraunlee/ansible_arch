@@ -1,0 +1,46 @@
+---
+# Optional profiles are intentionally opt-in. A host override replaces this
+# complete mapping, so retain every key when customizing it.
+optional_profiles:
+  tmux_focus: false
+  swappy: false
+  media_recording: false
+  archive_helpers: false
+  mirror_tools: false
+  voxtype:
+    enabled: false
+    provider: none
+
+# Keep helper providers grouped by their explicitly selected profile.
+optional_profile_package_sets:
+  tmux_focus:
+    - tmux
+  swappy:
+    - swappy
+  media_recording:
+    - yt-dlp
+    - ffmpeg
+    - wf-recorder
+  archive_helpers:
+    - unrar
+    - unzip
+    - ncompress
+    - 7zip
+  mirror_tools:
+    - reflector
+    - rate-mirrors
+    - expac
+  voxtype:
+    - wtype
+    - pipewire-alsa
+
+optional_voxtype_aur_packages:
+  cuda:
+    - voxtype-cuda
+
+# This file is outside the dotfiles checkout and every Stow package. The
+# corresponding versioned contract must be present in the cloned Hyprland Lua
+# source before the task writes it.
+optional_hyprland_overlay:
+  path: "/home/{{ username }}/.config/ansible_arch/hyprland-optional.lua"
+  contract_marker: ansible_arch_optional_overlay_v1

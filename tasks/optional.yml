@@ -1,0 +1,35 @@
+---
+- name: Resolve selected opt-in official packages
+  ansible.builtin.set_fact:
+    selected_optional_packages: >-
+      {{
+        (optional_profiles.tmux_focus | ternary(optional_profile_package_sets.tmux_focus, []))
+        + (optional_profiles.swappy | ternary(optional_profile_package_sets.swappy, []))
+        + (optional_profiles.media_recording | ternary(optional_profile_package_sets.media_recording, []))
+        + (optional_profiles.archive_helpers | ternary(optional_profile_package_sets.archive_helpers, []))
+        + (optional_profiles.mirror_tools | ternary(optional_profile_package_sets.mirror_tools, []))
+        + (optional_profiles.voxtype.enabled | ternary(optional_profile_package_sets.voxtype, []))
+      }}
+  changed_when: false
+  tags:
+    - optional
+
+- name: Install selected opt-in official packages
+  community.general.pacman:
+    name: "{{ selected_optional_packages }}"
+    state: present
+  become: true
+  when: selected_optional_packages | length > 0
+  tags:
+    - optional
+
+- name: Install selected Voxtype AUR provider
+  kewlfft.aur.aur:
+    name: "{{ optional_voxtype_aur_packages[optional_profiles.voxtype.provider] }}"
+    state: present
+    use: paru
+  become: true
+  become_user: aur_builder
+  when: optional_profiles.voxtype.enabled
+  tags:
+    - optional

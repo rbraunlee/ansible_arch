@@ -28,6 +28,11 @@
   become: true
   become_user: "{{ username }}"
 
+- name: Import Hyprland optional overlay contract
+  ansible.builtin.import_tasks: hyprland_optional_overlay.yml
+  tags:
+    - dotfiles
+
 - name: Find all app folders in common and linux subdirs
   ansible.builtin.find:
     paths: "{{ dotfiles.dest }}/{{ item }}"
