@@ -5,12 +5,18 @@ desktop_packages:
   - zsh
   - hyprland
   - hyprpaper
+  - hypridle
+  - hyprlock
   - kitty
   - ghostty
   - firefox
+  - dolphin
   - xdg-utils
   - waybar
   - npm
+  - neovim
+  - tree-sitter-cli
+  - ripgrep
   - wofi
   - swww
   - mako
@@ -24,7 +30,8 @@ desktop_packages:
   - qt6-wayland
   - polkit-kde-agent
   - ttf-jetbrains-mono-nerd
-  - ttf-font-awesome
+  - otf-font-awesome
+  - otf-comicshanns-nerd
 
 # Audio stack packages
 audio_packages:

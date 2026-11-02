@@ -27,8 +27,11 @@ ansible-galaxy collection install -r requirements.yml
 ### 2. Configure Variables
 
 Ansible automatically loads every YAML mapping in `group_vars/all/`. The files
-are split by concern without changing the existing package, service, user, or
-dotfiles values. `use_nvidia` is the only added default and is `true`.
+are split by concern. The current defaults deliberately add the reviewed
+NetworkManager, desktop, editor, update-helper, and font dependencies, replacing
+the obsolete `ttf-font-awesome` identifier; the full source-level rationale is
+in [the dotfiles dependency matrix](docs/dotfiles-dependency-coverage.md).
+`use_nvidia` remains a YAML boolean and defaults to `true`.
 
 Put machine-specific values in `host_vars/localhost.yml`. It is an empty mapping
 with commented examples in the repository. Use normal nested YAML mappings;
