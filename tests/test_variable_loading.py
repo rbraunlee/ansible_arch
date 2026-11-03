@@ -80,10 +80,6 @@ EXPECTED_ADDED_DEFAULTS = {
     "optional_voxtype_aur_packages": {
         "cuda": ["voxtype-cuda"],
     },
-    "optional_hyprland_overlay": {
-        "path": "/home/{{ username }}/.config/ansible_arch/hyprland-optional.lua",
-        "contract_marker": "ansible_arch_optional_overlay_v1",
-    },
 }
 
 
@@ -211,7 +207,6 @@ class VariableLoadingTest(unittest.TestCase):
         expected["optional_profiles"] = "__MISSING__"
         expected["optional_profile_package_sets"] = "__MISSING__"
         expected["optional_voxtype_aur_packages"] = "__MISSING__"
-        expected["optional_hyprland_overlay"] = "__MISSING__"
         return expected
 
     def expected_split_values(self):
@@ -264,9 +259,6 @@ class VariableLoadingTest(unittest.TestCase):
                 expected_split = self.expected_split_values()
                 expected_split["username"] = "rbl"
                 expected_split["dotfiles"]["dest"] = "/home/rbl/.dotfiles"
-                expected_split["optional_hyprland_overlay"]["path"] = (
-                    "/home/rbl/.config/ansible_arch/hyprland-optional.lua"
-                )
                 self.assertEqual(split["values"], expected_split)
 
     def test_host_vars_override_group_scalar_list_and_boolean(self):
@@ -301,10 +293,6 @@ class VariableLoadingTest(unittest.TestCase):
                 self.assertEqual(values["dotfiles"]["dest"], "/home/fixture-user/.dotfiles")
                 self.assertEqual(values["system_packages"], self.expected_split_values()["system_packages"])
                 self.assertEqual(values["optional_profiles"], overrides["optional_profiles"])
-                self.assertEqual(
-                    values["optional_hyprland_overlay"]["path"],
-                    "/home/fixture-user/.config/ansible_arch/hyprland-optional.lua",
-                )
 
 
 if __name__ == "__main__":

@@ -195,7 +195,8 @@ ansible-lint \
   main.yml tasks/*.yml group_vars/all/*.yml host_vars/localhost.yml \
   tests/fixtures/variable_loading/*.yml \
   tests/fixtures/nvidia_gating/playbook.yml \
-  tests/fixtures/optional_profiles/playbook.yml
+  tests/fixtures/optional_profiles/playbook.yml \
+  tests/fixtures/optional_preflight/playbook.yml
 python -m unittest discover -s tests -v
 ```
 

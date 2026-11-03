@@ -1,47 +1,51 @@
-diff --git a/linux/hypr/.config/hypr/hyprland.lua b/linux/hypr/.config/hypr/hyprland.lua
-index 7592761..d36f9c5 100644
---- a/linux/hypr/.config/hypr/hyprland.lua
-+++ b/linux/hypr/.config/hypr/hyprland.lua
-@@ -18,0 +19,27 @@ local screenshot = "flameshot gui"
-+-- ansible_arch_optional_overlay_v1
-+-- This is intentionally outside the Stow source. Ansible renders it only
-+-- after checking this contract; a missing file keeps the safe disabled state.
-+local ansible_optional = {
+diff --git a/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua b/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua
+new file mode 100644
+index 0000000..f5fc0d7
+--- /dev/null
++++ b/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua
+@@ -0,0 +1,24 @@
++-- ansible_arch.hyprland_optional_overlay/v1
++local home = assert(os.getenv("HOME"), "HOME is required for optional overlay")
++local overlay_path = home .. "/.config/ansible_arch/hyprland-optional.lua"
++local defaults = {
 +	voxtype_enabled = false,
 +	nvidia_environment = false,
 +}
-+local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
-+if not xdg_config_home or xdg_config_home == "" then
-+	local home = assert(os.getenv("HOME"), "HOME is required for optional overlay")
-+	xdg_config_home = home .. "/.config"
++
++local overlay_file = io.open(overlay_path, "r")
++if not overlay_file then
++	return defaults
 +end
-+local ansible_optional_path = xdg_config_home .. "/ansible_arch/hyprland-optional.lua"
-+local ansible_optional_file = io.open(ansible_optional_path, "r")
-+if ansible_optional_file then
-+	ansible_optional_file:close()
-+	local loaded, overlay = pcall(dofile, ansible_optional_path)
-+	if not loaded or type(overlay) ~= "table" then
-+		error("invalid ansible_arch optional overlay")
-+	end
-+	if type(overlay.voxtype_enabled) ~= "boolean"
-+		or type(overlay.nvidia_environment) ~= "boolean" then
-+		error("invalid ansible_arch optional overlay values")
-+	end
-+	ansible_optional = overlay
++overlay_file:close()
++
++local loaded, overlay = pcall(dofile, overlay_path)
++if not loaded or type(overlay) ~= "table" then
++	error("invalid ansible_arch optional overlay")
++end
++if type(overlay.voxtype_enabled) ~= "boolean"
++	or type(overlay.nvidia_environment) ~= "boolean" then
++	error("invalid ansible_arch optional overlay values")
 +end
 +
-@@ -33,3 +60,0 @@
++return overlay
+diff --git a/linux/hypr/.config/hypr/hyprland.lua b/linux/hypr/.config/hypr/hyprland.lua
+index 7592761..4f11f71 100644
+--- a/linux/hypr/.config/hypr/hyprland.lua
++++ b/linux/hypr/.config/hypr/hyprland.lua
+@@ -18,0 +19,1 @@ local screenshot = "flameshot gui"
++local ansible_optional = dofile(os.getenv("HOME") .. "/.config/hypr/ansible_arch_optional_overlay_v1.lua")
+@@ -33,3 +34,0 @@
 -	-- start is idempotent for an already active user unit; do not spawn a second daemon.
 -	-- Use a shell so the start is conditional on importing the Wayland session first.
 -	hl.exec_cmd("sh -c 'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE && systemctl --user start voxtype.service'")
-@@ -44,2 +68,4 @@
+@@ -44,2 +42,4 @@
 -hl.env("LIBVA_DRIVER_NAME", "nvidia")
 -hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
 +if ansible_optional.nvidia_environment then
 +	hl.env("LIBVA_DRIVER_NAME", "nvidia")
 +	hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
 +end
-@@ -165,12 +191,14 @@
+@@ -165,12 +165,14 @@
 --- Toggle local dictation; Voxtype types into whichever field has focus at output time.
 -hl.bind(mainMod .. " + CTRL + d", hl.dsp.exec_cmd("voxtype record toggle"))
 -

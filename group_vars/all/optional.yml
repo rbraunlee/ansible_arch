@@ -37,10 +37,3 @@ optional_profile_package_sets:
 optional_voxtype_aur_packages:
   cuda:
     - voxtype-cuda
-
-# This file is outside the dotfiles checkout and every Stow package. The
-# corresponding versioned contract must be present in the cloned Hyprland Lua
-# source before the task writes it.
-optional_hyprland_overlay:
-  path: "/home/{{ username }}/.config/ansible_arch/hyprland-optional.lua"
-  contract_marker: ansible_arch_optional_overlay_v1

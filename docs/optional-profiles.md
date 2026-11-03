@@ -54,29 +54,46 @@ values already inherited by a running session or migrate installed drivers.
 
 ## Guarded Hyprland contract
 
-The task renders only
-`~/.config/ansible_arch/hyprland-optional.lua`, a regular Ansible-owned file
-outside the dotfiles checkout and every Stow package. It refuses to overwrite a
-directory, symlink, or an existing regular file without the contract marker. A
-marked generated file is reconciled on a repeat run; change host variables
-instead of editing it.
+The single canonical path is
+`/home/<username>/.config/ansible_arch/hyprland-optional.lua`; it does not use
+`XDG_CONFIG_HOME` and is not configurable through host variables. The versioned
+Lua loader uses that same `HOME` path. The Ansible helper traverses the home,
+`.config`, and `ansible_arch` components through non-symlink directory
+descriptors, checks ownership, and atomically replaces only the regular leaf.
+It preserves an existing file without its fixed Ansible marker. A marked
+generated file is reconciled on a repeat run; change profile variables instead
+of editing it.
+
+This prevents a checked ancestor symlink from redirecting the helper's write.
+It is not a promise against a malicious same-user process replacing paths before
+or after the helper exits; a target home used for deployment must not be shared
+with an adversarial writer.
 
 The pinned upstream source `33e2c02` currently has no integration point and
 unconditionally starts `voxtype.service` plus unconditionally sets NVIDIA
-environment variables. Therefore the dotfiles task checks for the reviewed
-contract and fails before any Stow operation if it is absent. It never patches
-or dirties the rolling clone. The dotfiles maintainer must review and apply
-[the versioned patch](hyprland-optional-overlay-v1.patch) in the dotfiles
-repository first. This repository does not publish that second-repository
-change.
+environment variables. Before any system, desktop, AUR, firewall, or service
+task, the playbook clones the selected rolling dotfiles revision into a
+configured-user temporary checkout. It verifies the exact SHA-256 of the
+versioned `ansible_arch_optional_overlay_v1.lua` loader and the required real
+Hyprland gates, then deploys that same Git revision to `dotfiles.dest`. A later
+remote update therefore cannot race the checked source within the run; the next
+run selects a new rolling revision and validates it again.
+
+If the contract is absent, changed, incomplete, or contains any `systemctl`
+call, the preflight fails before workstation mutations and removes its temporary
+checkout. It never patches or dirties the rolling clone. The dotfiles maintainer
+must review and apply [the versioned patch](hyprland-optional-overlay-v1.patch)
+in the dotfiles repository first. This repository does not publish that
+second-repository change. The temporary preflight still runs in Ansible check
+mode so check mode cannot report a source it did not validate.
 
 The patch defaults both controls to false when the generated overlay is absent,
 never starts `voxtype.service`, gates the Voxtype shortcut/submap, and gates the
 NVIDIA environment variables. Once accepted upstream, the generated overlay
 sets `voxtype_enabled` from `optional_profiles.voxtype.enabled` and
-`nvidia_environment` from `use_nvidia`. Its marker and required gates are
-checked before Stow so a changed or incomplete upstream implementation cannot
-silently restore the old behavior.
+`nvidia_environment` from `use_nvidia`. The patch and loader are fixture-tested
+with a stub Hyprland Lua API for absent, enabled, disabled, malformed, and
+non-default-XDG cases; this is still not a real graphical session.
 
 This is source-level and fixture-tested coverage, not runtime acceptance. An
 authorized fresh-host/graphical-session gate must separately validate package

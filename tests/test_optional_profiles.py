@@ -1,21 +1,26 @@
-"""Isolated behavioral tests for ticket #10 optional profile tasks."""
+"""Isolated behavioral coverage for ticket #10 optional profiles and overlay."""
 
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
-
-import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "optional_profiles"
 FIXTURE_PLAYBOOK = FIXTURE_ROOT / "playbook.yml"
 FIXTURE_COLLECTIONS = ROOT / "tests" / "fixtures" / "optional_profiles_stub_collections"
+OVERLAY_HELPER = ROOT / "tasks" / "hyprland_optional_overlay.py"
+OVERLAY_TASK = ROOT / "tasks" / "hyprland_optional_overlay.yml"
+CONTRACT_PATCH = ROOT / "docs" / "hyprland-optional-overlay-v1.patch"
 PACMAN_STUB = (
     FIXTURE_COLLECTIONS
     / "ansible_collections"
@@ -37,19 +42,9 @@ AUR_STUB = (
 PACKAGE_RESULT_PATTERN = re.compile(r'"ticket10_package_stub": (\[[^]]*\])')
 AUR_RESULT_PATTERN = re.compile(r'"ticket10_aur_stub": (\[[^]]*\])')
 OVERLAY_MARKER = "ansible_arch_optional_overlay_v1"
-CONTRACT_SOURCE = """-- ansible_arch_optional_overlay_v1
-local ansible_optional = {}
-local ansible_optional_path = "ansible_arch/hyprland-optional.lua"
-local loaded, overlay = pcall(dofile, ansible_optional_path)
-if ansible_optional.voxtype_enabled then
-end
-if ansible_optional.nvidia_environment then
-end
-"""
-UNSUPPORTED_SOURCE = """-- legacy source without ticket #10 integration
-hl.exec_cmd(\"systemctl --user start voxtype.service\")
-hl.env(\"LIBVA_DRIVER_NAME\", \"nvidia\")
-"""
+LOADER_SHA256 = "1db66523300e1ce90a7a2fd22155035ba0bcf07ef2645cd8f88249f89b3c9e9e"
+LUA = shutil.which("lua") or shutil.which("lua5.4")
+
 DEFAULT_PROFILES = {
     "tmux_focus": False,
     "swappy": False,
@@ -68,23 +63,13 @@ PACKAGE_SETS = {
 }
 
 
-class OptionalProfilesTest(unittest.TestCase):
+class OptionalProfilePackagesTest(unittest.TestCase):
     maxDiff = None
 
-    def prepare_case(self, parent, name, *, source=CONTRACT_SOURCE, overlay=None):
+    def prepare_case(self, parent, name):
         case = parent / name
-        source_path = case / "dotfiles" / "linux" / "hypr" / ".config" / "hypr" / "hyprland.lua"
-        source_path.parent.mkdir(parents=True)
-        source_path.write_text(source, encoding="utf-8")
-        overlay_path = case / "home" / "rbl" / ".config" / "ansible_arch" / "hyprland-optional.lua"
-        if overlay is not None:
-            overlay_path.parent.mkdir(parents=True)
-            overlay_path.write_text(overlay, encoding="utf-8")
-        return {
-            "root": case,
-            "source": source_path,
-            "overlay": overlay_path,
-        }
+        case.mkdir()
+        return {"root": case}
 
     def ansible_environment(self, case):
         config = case["root"] / "ansible.cfg"
@@ -127,18 +112,9 @@ class OptionalProfilesTest(unittest.TestCase):
             "username": "rbl",
             "aur_builder": "fixture_aur_builder",
             "use_nvidia": use_nvidia,
-            "dotfiles": {
-                "repo": "https://example.invalid/dotfiles.git",
-                "dest": str(case["root"] / "dotfiles"),
-                "subdirs": ["common", "linux"],
-            },
             "optional_profiles": copy.deepcopy(profiles or DEFAULT_PROFILES),
             "optional_profile_package_sets": copy.deepcopy(PACKAGE_SETS),
             "optional_voxtype_aur_packages": {"cuda": ["voxtype-cuda"]},
-            "optional_hyprland_overlay": {
-                "path": str(case["overlay"]),
-                "contract_marker": OVERLAY_MARKER,
-            },
         }
 
     def assert_stub_resolution(self, case):
@@ -184,18 +160,19 @@ class OptionalProfilesTest(unittest.TestCase):
             check=False,
         )
 
-    def package_calls(self, output):
+    @staticmethod
+    def package_calls(output):
         return [json.loads(match) for match in PACKAGE_RESULT_PATTERN.findall(output)]
 
-    def aur_calls(self, output):
+    @staticmethod
+    def aur_calls(output):
         return [json.loads(match) for match in AUR_RESULT_PATTERN.findall(output)]
 
-    def assert_safe_failure(self, result, case, message):
+    def assert_safe_failure(self, result, message):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(message.lower(), (result.stdout + result.stderr).lower())
         self.assertEqual(self.package_calls(result.stdout), [])
         self.assertEqual(self.aur_calls(result.stdout), [])
-        self.assertFalse(case["overlay"].exists())
 
     def test_default_profile_is_opt_in_and_repeatable(self):
         with tempfile.TemporaryDirectory(prefix="ansible-optional-default-") as directory:
@@ -204,17 +181,7 @@ class OptionalProfilesTest(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
             self.assertEqual(self.package_calls(first.stdout), [])
             self.assertEqual(self.aur_calls(first.stdout), [])
-            self.assertEqual(
-                case["overlay"].read_text(encoding="utf-8"),
-                "-- ansible_arch_optional_overlay_v1\n"
-                "-- Generated by ansible_arch from optional_profiles. Do not edit this file;\n"
-                "-- use a complete host_vars optional_profiles mapping instead.\n"
-                "return {\n"
-                "  voxtype_enabled = false,\n"
-                "  nvidia_environment = true,\n"
-                "}\n",
-            )
-            self.assertEqual(case["source"].read_text(encoding="utf-8"), CONTRACT_SOURCE)
+            self.assertIn("changed=0", first.stdout)
 
             second = self.run_case(case)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
@@ -228,46 +195,18 @@ class OptionalProfilesTest(unittest.TestCase):
             profiles[profile] = True
         profiles["voxtype"] = {"enabled": True, "provider": "cuda"}
         expected_packages = [
-            "tmux",
-            "swappy",
-            "yt-dlp",
-            "ffmpeg",
-            "wf-recorder",
-            "unrar",
-            "unzip",
-            "ncompress",
-            "7zip",
-            "reflector",
-            "rate-mirrors",
-            "expac",
-            "wtype",
+            "tmux", "swappy", "yt-dlp", "ffmpeg", "wf-recorder", "unrar", "unzip",
+            "ncompress", "7zip", "reflector", "rate-mirrors", "expac", "wtype",
             "pipewire-alsa",
         ]
         with tempfile.TemporaryDirectory(prefix="ansible-optional-enabled-") as directory:
             case = self.prepare_case(Path(directory), "enabled")
             result = self.run_case(case, profiles=profiles)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(
-                self.package_calls(result.stdout),
-                [expected_packages],
-                result.stdout + result.stderr,
-            )
-            self.assertEqual(self.aur_calls(result.stdout), [["voxtype-cuda"]], result.stdout + result.stderr)
-            self.assertIn("voxtype_enabled = true", case["overlay"].read_text(encoding="utf-8"))
-            self.assertIn("nvidia_environment = true", case["overlay"].read_text(encoding="utf-8"))
+            self.assertEqual(self.package_calls(result.stdout), [expected_packages])
+            self.assertEqual(self.aur_calls(result.stdout), [["voxtype-cuda"]])
 
-    def test_disabled_profile_with_non_nvidia_renders_no_nvidia_environment(self):
-        with tempfile.TemporaryDirectory(prefix="ansible-optional-non-nvidia-") as directory:
-            case = self.prepare_case(Path(directory), "non-nvidia")
-            result = self.run_case(case, use_nvidia=False)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(self.package_calls(result.stdout), [])
-            self.assertEqual(self.aur_calls(result.stdout), [])
-            overlay = case["overlay"].read_text(encoding="utf-8")
-            self.assertIn("voxtype_enabled = false", overlay)
-            self.assertIn("nvidia_environment = false", overlay)
-
-    def test_invalid_profiles_fail_before_packages_or_overlay_mutation(self):
+    def test_invalid_profiles_fail_before_package_mutation(self):
         invalid_cases = {
             "string-flag": {**DEFAULT_PROFILES, "tmux_focus": "true"},
             "unknown-key": {**DEFAULT_PROFILES, "unknown": False},
@@ -279,62 +218,271 @@ class OptionalProfilesTest(unittest.TestCase):
             for label, profiles in invalid_cases.items():
                 with self.subTest(label=label):
                     case = self.prepare_case(parent, label)
-                    result = self.run_case(case, profiles=profiles)
-                    self.assert_safe_failure(result, case, "Optional")
-                    self.assertEqual(case["source"].read_text(encoding="utf-8"), CONTRACT_SOURCE)
+                    self.assert_safe_failure(self.run_case(case, profiles=profiles), "Optional")
 
-    def test_cuda_profile_rejects_non_nvidia_before_packages_or_overlay_mutation(self):
+    def test_cuda_profile_rejects_non_nvidia_before_package_mutation(self):
         profiles = copy.deepcopy(DEFAULT_PROFILES)
         profiles["voxtype"] = {"enabled": True, "provider": "cuda"}
         with tempfile.TemporaryDirectory(prefix="ansible-optional-cuda-non-nvidia-") as directory:
             case = self.prepare_case(Path(directory), "cuda-non-nvidia")
-            result = self.run_case(case, profiles=profiles, use_nvidia=False)
-            self.assert_safe_failure(result, case, "Voxtype provider cuda requires use_nvidia: true.")
-            self.assertEqual(case["source"].read_text(encoding="utf-8"), CONTRACT_SOURCE)
-
-    def test_missing_source_contract_fails_before_selected_profile_packages(self):
-        profiles = copy.deepcopy(DEFAULT_PROFILES)
-        profiles["voxtype"] = {"enabled": True, "provider": "cuda"}
-        with tempfile.TemporaryDirectory(prefix="ansible-optional-contract-") as directory:
-            case = self.prepare_case(Path(directory), "missing-contract", source=UNSUPPORTED_SOURCE)
-            result = self.run_case(case, profiles=profiles)
-            self.assert_safe_failure(result, case, "does not implement the reviewed")
-            self.assertEqual(case["source"].read_text(encoding="utf-8"), UNSUPPORTED_SOURCE)
-
-    def test_unowned_overlay_is_preserved(self):
-        unowned_overlay = "return { voxtype_enabled = true, nvidia_environment = true }\n"
-        with tempfile.TemporaryDirectory(prefix="ansible-optional-preserve-") as directory:
-            case = self.prepare_case(Path(directory), "unowned", overlay=unowned_overlay)
-            result = self.run_case(case)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Refusing to replace an unowned optional overlay", result.stdout + result.stderr)
-            self.assertEqual(self.package_calls(result.stdout), [])
-            self.assertEqual(self.aur_calls(result.stdout), [])
-            self.assertEqual(case["overlay"].read_text(encoding="utf-8"), unowned_overlay)
-
-    def test_managed_overlay_drift_is_reconciled_and_then_idempotent(self):
-        managed_drift = (
-            "-- ansible_arch_optional_overlay_v1\n"
-            "return { voxtype_enabled = true, nvidia_environment = true }\n"
-        )
-        with tempfile.TemporaryDirectory(prefix="ansible-optional-drift-") as directory:
-            case = self.prepare_case(Path(directory), "drift", overlay=managed_drift)
-            result = self.run_case(case, use_nvidia=False)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            reconciled = case["overlay"].read_text(encoding="utf-8")
-            self.assertIn("voxtype_enabled = false", reconciled)
-            self.assertIn("nvidia_environment = false", reconciled)
-
-            repeat = self.run_case(case, use_nvidia=False)
-            self.assertEqual(repeat.returncode, 0, repeat.stdout + repeat.stderr)
-            self.assertIn("changed=0", repeat.stdout)
+            self.assert_safe_failure(
+                self.run_case(case, profiles=profiles, use_nvidia=False),
+                "Voxtype provider cuda requires use_nvidia: true.",
+            )
 
     def test_unexpected_tags_fail_before_production_tasks(self):
         with tempfile.TemporaryDirectory(prefix="ansible-optional-tags-") as directory:
             case = self.prepare_case(Path(directory), "unexpected-tags")
-            result = self.run_case(case, tags="all")
-            self.assert_safe_failure(result, case, "Optional profile fixture safety boundary violated")
-            self.assertEqual(case["source"].read_text(encoding="utf-8"), CONTRACT_SOURCE)
+            self.assert_safe_failure(self.run_case(case, tags="all"), "fixture safety boundary")
+
+
+class CanonicalOverlayHelperTest(unittest.TestCase):
+    maxDiff = None
+
+    def setUp(self):
+        self.username = pwd.getpwuid(os.geteuid()).pw_name
+
+    def run_helper(
+        self, home, *, voxtype=False, nvidia=False, check=False, xdg_home=None, test_mode=True
+    ):
+        environment = os.environ.copy()
+        if test_mode:
+            environment["ANSIBLE_ARCH_OPTIONAL_OVERLAY_TEST"] = "1"
+        if xdg_home is not None:
+            environment["XDG_CONFIG_HOME"] = str(xdg_home)
+        command = [
+            sys.executable,
+            str(OVERLAY_HELPER),
+            "--home", str(home),
+            "--username", self.username,
+            "--voxtype-enabled", str(voxtype).lower(),
+            "--nvidia-environment", str(nvidia).lower(),
+        ]
+        if check:
+            command.append("--check")
+        return subprocess.run(command, env=environment, capture_output=True, text=True, check=False)
+
+    def test_canonical_home_overlay_ignores_nondefault_xdg_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-overlay-canonical-") as directory:
+            root = Path(directory)
+            home = root / "home" / self.username
+            home.mkdir(parents=True)
+            nondefault_xdg = root / "other-xdg"
+            first = self.run_helper(home, voxtype=True, nvidia=False, xdg_home=nondefault_xdg)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            self.assertTrue(json.loads(first.stdout)["changed"])
+            canonical = home / ".config" / "ansible_arch" / "hyprland-optional.lua"
+            self.assertTrue(canonical.is_file())
+            self.assertFalse(nondefault_xdg.exists())
+            self.assertIn("voxtype_enabled = true", canonical.read_text(encoding="utf-8"))
+            self.assertIn("nvidia_environment = false", canonical.read_text(encoding="utf-8"))
+
+            repeat = self.run_helper(home, voxtype=True, nvidia=False, xdg_home=nondefault_xdg)
+            self.assertEqual(repeat.returncode, 0, repeat.stdout + repeat.stderr)
+            self.assertFalse(json.loads(repeat.stdout)["changed"])
+
+    def test_parent_config_and_overlay_directory_symlinks_cannot_escape(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-overlay-symlink-") as directory:
+            root = Path(directory)
+            for label in ("home", "config", "overlay-directory"):
+                with self.subTest(ancestor=label):
+                    case = root / label
+                    escaped = case / "escaped-unowned"
+                    escaped.mkdir(parents=True)
+                    home_parent = case / "home"
+                    home = home_parent / self.username
+                    if label == "home":
+                        home_parent.mkdir()
+                        home.symlink_to(escaped, target_is_directory=True)
+                    elif label == "config":
+                        home.mkdir(parents=True)
+                        (home / ".config").symlink_to(escaped, target_is_directory=True)
+                    else:
+                        overlay_parent = home / ".config"
+                        overlay_parent.mkdir(parents=True)
+                        (overlay_parent / "ansible_arch").symlink_to(escaped, target_is_directory=True)
+
+                    result = self.run_helper(home)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("non-symlink directory", result.stderr)
+                    self.assertFalse((escaped / "hyprland-optional.lua").exists())
+
+    def test_unowned_file_is_preserved_and_check_mode_writes_nothing(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-overlay-preserve-") as directory:
+            root = Path(directory)
+            home = root / "home" / self.username
+            overlay = home / ".config" / "ansible_arch" / "hyprland-optional.lua"
+            overlay.parent.mkdir(parents=True)
+            original = "return { voxtype_enabled = true, nvidia_environment = true }\n"
+            overlay.write_text(original, encoding="utf-8")
+            result = self.run_helper(home)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unowned optional overlay", result.stderr)
+            self.assertEqual(overlay.read_text(encoding="utf-8"), original)
+
+            new_home = root / "fresh-home" / self.username
+            new_home.mkdir(parents=True)
+            check = self.run_helper(new_home, check=True)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+            self.assertTrue(json.loads(check.stdout)["changed"])
+            self.assertFalse((new_home / ".config").exists())
+
+    def test_noncanonical_home_is_rejected_outside_the_isolated_test_mode(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-overlay-canonical-reject-") as directory:
+            home = Path(directory) / "home" / self.username
+            home.mkdir(parents=True)
+            result = self.run_helper(home, test_mode=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("canonical configured-user home", result.stderr)
+            self.assertFalse((home / ".config").exists())
+
+    def test_production_task_has_no_user_writable_path_or_marker_override(self):
+        task = OVERLAY_TASK.read_text(encoding="utf-8")
+        self.assertIn('"/home/{{ username }}"', task)
+        self.assertNotIn("optional_hyprland_overlay", task)
+        self.assertNotIn("ANSIBLE_ARCH_OPTIONAL_OVERLAY_TEST", task)
+        self.assertIn("hyprland_optional_overlay.py", task)
+
+
+@unittest.skipUnless(LUA, "Lua interpreter is unavailable")
+class HyprlandContractPatchTest(unittest.TestCase):
+    def baseline(self):
+        lines = ["\n"] * 190
+        lines[14] = 'local terminal = "ghostty"\n'
+        lines[15] = 'local fileManager = "dolphin"\n'
+        lines[16] = 'local menu = "wofi --show drun"\n'
+        lines[17] = 'local screenshot = "flameshot gui"\n'
+        lines[24] = 'hl.on("hyprland.start", function()\n'
+        lines[25] = '\thl.exec_cmd("focus")\n'
+        lines[26] = '\thl.exec_cmd("waybar")\n'
+        lines[27] = '\thl.exec_cmd("hyprpaper")\n'
+        lines[28] = '\thl.exec_cmd("mako")\n'
+        lines[29] = '\thl.exec_cmd("gsettings")\n'
+        lines[30] = '\thl.exec_cmd("polkit")\n'
+        lines[31] = '\thl.exec_cmd("hypridle")\n'
+        lines[32] = '\t-- start is idempotent for an already active user unit; do not spawn a second daemon.\n'
+        lines[33] = '\t-- Use a shell so the start is conditional on importing the Wayland session first.\n'
+        lines[34] = (
+            '\thl.exec_cmd("sh -c \'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY '
+            'XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE && '
+            'systemctl --user start voxtype.service\'")\n'
+        )
+        lines[35] = 'end)\n'
+        lines[41] = 'hl.env("XCURSOR_SIZE", "24")\n'
+        lines[42] = 'hl.env("HYPRCURSOR_SIZE", "24")\n'
+        lines[43] = 'hl.env("LIBVA_DRIVER_NAME", "nvidia")\n'
+        lines[44] = 'hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")\n'
+        lines[119] = 'local mainMod = "SUPER"\n'
+        lines[161] = '-- Screenshot\n'
+        lines[162] = 'hl.bind(mainMod .. " + CTRL + SHIFT + s", hl.dsp.exec_cmd(screenshot))\n'
+        lines[164] = '-- Toggle local dictation; Voxtype types into whichever field has focus at output time.\n'
+        lines[165] = 'hl.bind(mainMod .. " + CTRL + d", hl.dsp.exec_cmd("voxtype record toggle"))\n'
+        lines[167] = '-- Isolate synthetic dictation from desktop shortcuts while output is typed.\n'
+        lines[168] = "-- Do not bind Escape here: it can swallow wtype's first character.\n"
+        lines[169] = 'hl.define_submap("voxtype_suppress", function()\n'
+        lines[170] = (
+            '\tfor _, key in ipairs({ "Super_L", "Super_R", "Control_L", "Control_R", '
+            '"Alt_L", "Alt_R", "Shift_L", "Shift_R" }) do\n'
+        )
+        lines[171] = '\t\thl.bind(key, function() end)\n'
+        lines[172] = '\tend\n'
+        lines[173] = '\t-- Release held modifiers, then press F12 if output was interrupted.\n'
+        lines[174] = '\thl.bind("F12", hl.dsp.submap("reset"))\n'
+        lines[175] = 'end)\n'
+        return "".join(lines)
+
+    def patched_tree(self, root):
+        source = root / "linux" / "hypr" / ".config" / "hypr" / "hyprland.lua"
+        source.parent.mkdir(parents=True)
+        source.write_text(self.baseline(), encoding="utf-8")
+        result = subprocess.run(
+            ["patch", "-p1", "-d", str(root)],
+            input=CONTRACT_PATCH.read_text(encoding="utf-8"),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        loader = source.with_name("ansible_arch_optional_overlay_v1.lua")
+        self.assertEqual(hashlib.sha256(loader.read_bytes()).hexdigest(), LOADER_SHA256)
+        return source, loader
+
+    @staticmethod
+    def lua_harness():
+        return """\
+hl = {}
+function hl.on(_, callback) callback() end
+function hl.exec_cmd(command) print("EXEC:" .. command) end
+function hl.env(name, value) print("ENV:" .. name .. "=" .. value) end
+function hl.bind(key, _) print("BIND:" .. key) end
+function hl.define_submap(name, callback) print("SUBMAP:" .. name); callback() end
+hl.dsp = {
+  exec_cmd = function(command) return command end,
+  submap = function(name) return name end,
+}
+dofile(arg[1])
+"""
+
+    def run_patched_config(self, *, overlay=None, xdg_config_home=None):
+        with tempfile.TemporaryDirectory(prefix="ansible-hyprland-contract-") as directory:
+            root = Path(directory)
+            source, loader = self.patched_tree(root)
+            home = root / "home" / "fixture-user"
+            loader_target = home / ".config" / "hypr" / loader.name
+            loader_target.parent.mkdir(parents=True)
+            shutil.copy2(loader, loader_target)
+            if overlay is not None:
+                overlay_target = home / ".config" / "ansible_arch" / "hyprland-optional.lua"
+                overlay_target.parent.mkdir(parents=True)
+                overlay_target.write_text(overlay, encoding="utf-8")
+            harness = root / "harness.lua"
+            harness.write_text(self.lua_harness(), encoding="utf-8")
+            environment = os.environ.copy()
+            environment["HOME"] = str(home)
+            environment["XDG_CONFIG_HOME"] = str(xdg_config_home or (root / "nondefault-xdg"))
+            return subprocess.run(
+                [LUA, str(harness), str(source)],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_exact_patch_absent_overlay_disables_nvidia_and_voxtype(self):
+        result = self.run_patched_config()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("ENV:LIBVA_DRIVER_NAME=nvidia", result.stdout)
+        self.assertNotIn("ENV:__GLX_VENDOR_LIBRARY_NAME=nvidia", result.stdout)
+        self.assertNotIn("BIND:SUPER + CTRL + d", result.stdout)
+        self.assertNotIn("SUBMAP:voxtype_suppress", result.stdout)
+        self.assertNotIn("systemctl", result.stdout)
+
+    def test_exact_patch_true_and_false_overlays_gate_runtime_behavior(self):
+        enabled = self.run_patched_config(
+            overlay="return { voxtype_enabled = true, nvidia_environment = true }\n"
+        )
+        self.assertEqual(enabled.returncode, 0, enabled.stdout + enabled.stderr)
+        self.assertIn("ENV:LIBVA_DRIVER_NAME=nvidia", enabled.stdout)
+        self.assertIn("ENV:__GLX_VENDOR_LIBRARY_NAME=nvidia", enabled.stdout)
+        self.assertIn("BIND:SUPER + CTRL + d", enabled.stdout)
+        self.assertIn("SUBMAP:voxtype_suppress", enabled.stdout)
+        self.assertNotIn("systemctl", enabled.stdout)
+
+        disabled = self.run_patched_config(
+            overlay="return { voxtype_enabled = false, nvidia_environment = false }\n"
+        )
+        self.assertEqual(disabled.returncode, 0, disabled.stdout + disabled.stderr)
+        self.assertNotIn("ENV:LIBVA_DRIVER_NAME=nvidia", disabled.stdout)
+        self.assertNotIn("BIND:SUPER + CTRL + d", disabled.stdout)
+        self.assertNotIn("SUBMAP:voxtype_suppress", disabled.stdout)
+
+    def test_exact_patch_rejects_malformed_overlay_under_nondefault_xdg(self):
+        result = self.run_patched_config(
+            overlay="return { voxtype_enabled = 'true', nvidia_environment = false }\n",
+            xdg_config_home=Path("/tmp/nondefault-xdg-for-test"),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid ansible_arch optional overlay values", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

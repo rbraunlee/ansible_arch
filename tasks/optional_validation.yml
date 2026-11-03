@@ -10,13 +10,9 @@
       - >-
         optional_profiles.voxtype | dict2items | map(attribute='key') | list | sort
         == ['enabled', 'provider']
-      - optional_hyprland_overlay is mapping
-      - >-
-        optional_hyprland_overlay | dict2items | map(attribute='key') | list | sort
-        == ['contract_marker', 'path']
     fail_msg: >-
-      optional_profiles and optional_hyprland_overlay must use the documented
-      complete mappings; unknown or missing keys are rejected.
+      optional_profiles must use the documented complete mapping; unknown or
+      missing keys are rejected.
     quiet: true
   tags:
     - always

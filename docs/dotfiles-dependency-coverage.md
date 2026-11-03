@@ -29,11 +29,13 @@ headless controller or VM exercised a graphical session.
   WOFF2 split package, whereas `otf-font-awesome` is the current installed-font
   split appropriate for the Waybar font provider.
 
-The task order remains unchanged: system foundations install
-`system_packages`, the desktop task installs `desktop_packages`, then the
-dotfiles task clones the configured rolling checkout and Stows every immediate
-directory under `common/` and `linux/`. A host override still replaces a whole
-package list, so an override must include any desired defaults.
+Before system foundations, the optional-profile preflight clones and validates
+the selected rolling dotfiles revision in a temporary checkout. System
+foundations then install `system_packages`, the desktop task installs
+`desktop_packages`, and the dotfiles task deploys that exact validated revision
+and Stows every immediate directory under `common/` and `linux/`. A host
+override still replaces a whole package list, so an override must include any
+desired defaults.
 
 ## Classification
 
@@ -68,7 +70,7 @@ package list, so an override must include any desired defaults.
 | `linux/bash` | `linux/bash/.bashrc` | **External bootstrap**: Bash comes from the Arch base. Its `nvim` and `rg` aliases use the direct defaults; legacy aliases remain **optional/manual** rather than defaults. |
 | `linux/hypr` | `linux/hypr/.config/hypr/hyprland.lua`, `start-hypridle.sh`, `hypridle.conf` | **Direct default**: `hyprland`, `hyprpaper`, `waybar`, `mako`, `flameshot`, `wofi`, portals, clipboard tools, `hypridle`, `hyprlock`, and `dolphin`. `NetworkManager` is directly installed with system foundations for its enabled service; `pgrep` is from the base system. Idle/lock behavior needs an authorized graphical-session gate. |
 | `linux/swappy` | `linux/swappy/.config/swappy/config` | **Optional/manual**: install `swappy` only if this screenshot editor is selected. |
-| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Guarded pending integration**: Ticket #10 makes `voxtype-cuda`, `wtype`, and `pipewire-alsa` opt-in for the CUDA choice and validates NVIDIA selection. The current upstream source still autostarts Voxtype, so the dotfiles task refuses Stow until its maintainer adopts the reviewed external-overlay contract. Backend/model acquisition, microphone selection, and user-service adoption stay **manual**. |
+| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Guarded pending integration**: Ticket #10 makes `voxtype-cuda`, `wtype`, and `pipewire-alsa` opt-in for the CUDA choice and validates NVIDIA selection. The current upstream source still autostarts Voxtype, so a temporary revision-pinned preflight fails before any workstation mutation until its maintainer adopts the reviewed external-overlay contract. Backend/model acquisition, microphone selection, and user-service adoption stay **manual**. |
 | `linux/waybar` | `linux/waybar/.config/waybar/config.jsonc`, `scripts/update-sys.sh`, `style.css` | **Direct default**: `waybar`, `pacman-contrib` for `checkupdates`, `hyprlock`, `otf-font-awesome`, and `otf-comicshanns-nerd` for the configured ComicShanns face. `playerctl` is **transitive default** through Waybar. `paru` is supplied by the existing AUR task. |
 | `linux/wofi` | `linux/wofi/.config/wofi/` | **Direct default**: `wofi`; its generic monospace choice needs no additional font package. |
 | `linux/zsh` | `linux/zsh/.zshrc` | **Direct default**: `zsh` and `starship`; it shares the common Zsh providers. |
@@ -86,9 +88,9 @@ The default package additions above are covered at source level. Ticket #10
 adds only opt-in helper/profile packages and a guarded Hyprland contract; it
 does not declare the current upstream Voxtype autostart or NVIDIA-specific
 environment settings resolved. Until the dotfiles maintainer adopts the
-reviewable contract, this playbook fails before Stow rather than silently
-deploying that source. Other optional and manual prerequisites remain as listed
-in the matrix.
+reviewable contract, this playbook fails before any workstation mutation rather
+than silently deploying that source. Other optional and manual prerequisites
+remain as listed in the matrix.
 
 ## Runtime acceptance gate — separate authorization required
 

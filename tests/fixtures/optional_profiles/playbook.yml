@@ -1,5 +1,5 @@
 ---
-- name: "Exercise ticket #10 optional profiles against isolated paths and modules"
+- name: "Exercise ticket #10 optional package profiles against isolated modules"
   hosts: localhost
   connection: local
   gather_facts: false
@@ -12,10 +12,6 @@
           - ansible_skip_tags | length == 0
           - ansible_become is false
           - fixture_runtime_root is defined
-          - dotfiles.dest == fixture_runtime_root + '/dotfiles'
-          - >-
-            optional_hyprland_overlay.path
-            == fixture_runtime_root + '/home/rbl/.config/ansible_arch/hyprland-optional.lua'
         fail_msg: Optional profile fixture safety boundary violated; use the Python test runner.
         quiet: true
       tags:
@@ -24,9 +20,6 @@
   tasks:
     - name: Import production optional profile validation
       ansible.builtin.import_tasks: ../../../tasks/optional_validation.yml
-
-    - name: Import production Hyprland optional overlay tasks
-      ansible.builtin.import_tasks: ../../../tasks/hyprland_optional_overlay.yml
 
     - name: Import production optional profile package tasks
       ansible.builtin.import_tasks: ../../../tasks/optional.yml

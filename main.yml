@@ -10,6 +10,9 @@
     - name: Validate optional profile selections
       ansible.builtin.import_tasks: tasks/optional_validation.yml
 
+    - name: Preflight the exact dotfiles revision
+      ansible.builtin.import_tasks: tasks/optional_preflight.yml
+
     - name: Import System configurations
       ansible.builtin.import_tasks: tasks/system.yml
 

@@ -25,8 +25,7 @@
                 'dotfiles': dotfiles,
                 'optional_profiles': optional_profiles | default('__MISSING__'),
                 'optional_profile_package_sets': optional_profile_package_sets | default('__MISSING__'),
-                'optional_voxtype_aur_packages': optional_voxtype_aur_packages | default('__MISSING__'),
-                'optional_hyprland_overlay': optional_hyprland_overlay | default('__MISSING__')
+                'optional_voxtype_aur_packages': optional_voxtype_aur_packages | default('__MISSING__')
               }
             } | to_json | b64encode
           }}
