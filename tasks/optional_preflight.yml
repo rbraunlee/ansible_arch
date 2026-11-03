@@ -1,0 +1,114 @@
+---
+- name: Create an isolated dotfiles preflight checkout
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: ansible-arch-dotfiles-preflight-
+  register: optional_preflight_directory
+  check_mode: false
+  become: true
+  become_user: "{{ username }}"
+  tags:
+    - always
+
+- name: Validate the selected dotfiles revision before system changes
+  become: true
+  become_user: "{{ username }}"
+  check_mode: false
+  tags:
+    - always
+  block:
+    - name: Clone the selected rolling dotfiles revision for preflight
+      ansible.builtin.git:
+        repo: "{{ dotfiles.repo }}"
+        dest: "{{ optional_preflight_directory.path }}/checkout"
+        recursive: true
+        update: true
+        accept_hostkey: true
+      register: preflight_dotfiles_checkout
+      # The revision remains rolling between runs; this run deploys this exact SHA.
+      # noqa: latest[git]
+
+    - name: Record the preflight dotfiles revision
+      ansible.builtin.set_fact:
+        preflight_dotfiles_revision: "{{ preflight_dotfiles_checkout.after }}"
+      changed_when: false
+
+    - name: Inspect the versioned Hyprland optional-overlay loader
+      ansible.builtin.stat:
+        path: "{{ optional_preflight_directory.path }}/checkout/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v2.lua"
+        follow: false
+      register: preflight_optional_overlay_loader_stat
+
+    - name: Read the versioned Hyprland optional-overlay loader
+      ansible.builtin.slurp:
+        src: "{{ optional_preflight_directory.path }}/checkout/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v2.lua"
+      register: preflight_optional_overlay_loader
+      when: preflight_optional_overlay_loader_stat.stat.exists
+
+    - name: Read the Hyprland configuration selected for deployment
+      ansible.builtin.slurp:
+        src: "{{ optional_preflight_directory.path }}/checkout/linux/hypr/.config/hypr/hyprland.lua"
+      register: preflight_hyprland_configuration
+
+    - name: Decode the selected Hyprland configuration once
+      ansible.builtin.set_fact:
+        preflight_hyprland_source: "{{ preflight_hyprland_configuration.content | b64decode }}"
+      changed_when: false
+
+    - name: Require the immutable versioned Hyprland optional-overlay contract
+      ansible.builtin.assert:
+        that:
+          - preflight_optional_overlay_loader_stat.stat.exists
+          - preflight_optional_overlay_loader_stat.stat.isreg | default(false)
+          - not (preflight_optional_overlay_loader_stat.stat.islnk | default(false))
+          - >-
+            (preflight_optional_overlay_loader.content | default('') | b64decode | hash('sha256'))
+            == '4f8a1cf397ba28160395488d26470c16a87100cc8632ce12a4e78e80297b93c4'
+          - >-
+            preflight_hyprland_source is search(
+            '(?m)^local ansible_optional = dofile\(os.getenv\("HOME"\) \.\. "/\.config/hypr/ansible_arch_optional_overlay_v2\.lua"\)$')
+          - >-
+            preflight_hyprland_source is search(
+            '(?s)if ansible_optional\.nvidia_environment then'
+            ~ '\s+hl\.env\("LIBVA_DRIVER_NAME", "nvidia"\)'
+            ~ '\s+hl\.env\("__GLX_VENDOR_LIBRARY_NAME", "nvidia"\)\s+end')
+          - >-
+            preflight_hyprland_source is search(
+            "(?s)if ansible_optional\\.voxtype_enabled then"
+            ~ "\\s+-- start is idempotent for an already active user unit; do not spawn a second daemon\\."
+            ~ "\\s+-- Use a shell so the start is conditional on importing the Wayland session first\\."
+            ~ "\\s+hl\\.exec_cmd\\(\\\"sh -c 'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY "
+            ~ "XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE && "
+            ~ "systemctl --user start voxtype\\.service'\\\"\\)\\s+end")
+          - >-
+            preflight_hyprland_source is search(
+            '(?s)if ansible_optional\.voxtype_enabled then\s+.*'
+            ~ 'hl\.bind\(mainMod \.\. " \+ CTRL \+ d", '
+            ~ 'hl\.dsp\.exec_cmd\("voxtype record toggle"\)\).*'
+            ~ 'hl\.define_submap\("voxtype_suppress"')
+          - >-
+            preflight_hyprland_source.count('hl.env("LIBVA_DRIVER_NAME", "nvidia")') == 1
+          - >-
+            preflight_hyprland_source.count('hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")') == 1
+          - >-
+            preflight_hyprland_source.count('voxtype record toggle') == 1
+          - >-
+            preflight_hyprland_source.count('hl.define_submap("voxtype_suppress"') == 1
+          - >-
+            preflight_hyprland_source.count(
+            'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE') == 1
+          - >-
+            preflight_hyprland_source.count('systemctl --user start voxtype.service') == 1
+          - "'voxtype -q daemon' not in preflight_hyprland_source"
+          - "'systemctl --user restart' not in preflight_hyprland_source"
+        fail_msg: >-
+          The selected dotfiles revision does not implement immutable
+          ansible_arch optional-overlay contract v2. Refusing all workstation
+          changes; the dotfiles maintainer must review and apply
+          docs/hyprland-optional-overlay-v2.patch first.
+        quiet: true
+  always:
+    - name: Remove the isolated dotfiles preflight checkout
+      ansible.builtin.file:
+        path: "{{ optional_preflight_directory.path }}"
+        state: absent

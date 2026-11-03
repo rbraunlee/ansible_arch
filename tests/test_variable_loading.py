@@ -27,8 +27,60 @@ EXPECTED_SPLIT_FILES = {
     "desktop.yml",
     "dotfiles.yml",
     "graphics.yml",
+    "optional.yml",
     "services.yml",
     "system.yml",
+}
+# The legacy fixture is historical input and must not be changed for later
+# defaults.  These are the reviewed ticket #9 default-package deltas, expressed
+# relative to that fixture so this suite keeps testing compatibility rather than
+# silently copying the current mappings into its expectations.
+EXPECTED_PACKAGE_DELTAS = {
+    "system_packages": {
+        "remove": (),
+        "insert_after": (
+            ("snap-pac", "pacman-contrib"),
+            ("ufw", "networkmanager"),
+        ),
+    },
+    "desktop_packages": {
+        "remove": ("ttf-font-awesome",),
+        "insert_after": (
+            ("hyprpaper", "hypridle"),
+            ("hypridle", "hyprlock"),
+            ("firefox", "dolphin"),
+            ("npm", "neovim"),
+            ("neovim", "tree-sitter-cli"),
+            ("tree-sitter-cli", "ripgrep"),
+            ("ttf-jetbrains-mono-nerd", "otf-font-awesome"),
+            ("otf-font-awesome", "otf-comicshanns-nerd"),
+        ),
+    },
+}
+EXPECTED_ADDED_DEFAULTS = {
+    "optional_profiles": {
+        "tmux_focus": False,
+        "swappy": False,
+        "media_recording": False,
+        "archive_helpers": False,
+        "mirror_tools": False,
+        "voxtype": {
+            "enabled": True,
+            "provider": "auto",
+        },
+    },
+    "optional_profile_package_sets": {
+        "tmux_focus": ["tmux"],
+        "swappy": ["swappy"],
+        "media_recording": ["yt-dlp", "ffmpeg", "wf-recorder"],
+        "archive_helpers": ["unrar", "unzip", "ncompress", "7zip"],
+        "mirror_tools": ["reflector", "rate-mirrors", "expac"],
+        "voxtype": ["wtype", "pipewire-alsa"],
+    },
+    "optional_voxtype_aur_packages": {
+        "cpu": ["voxtype-bin"],
+        "cuda": ["voxtype-cuda"],
+    },
 }
 
 
@@ -99,8 +151,10 @@ class VariableLoadingTest(unittest.TestCase):
         return project
 
     def run_inspection(self, project, explicit_inventory):
+        ansible_home = project / ".ansible" / "home"
         local_temp = project / ".ansible" / "local"
         remote_temp = project / ".ansible" / "remote"
+        ansible_home.mkdir(parents=True)
         local_temp.mkdir(parents=True)
         remote_temp.mkdir(parents=True)
 
@@ -114,6 +168,7 @@ class VariableLoadingTest(unittest.TestCase):
         environment.update(
             {
                 "ANSIBLE_CONFIG": str(config),
+                "ANSIBLE_HOME": str(ansible_home),
                 "ANSIBLE_LOCAL_TEMP": str(local_temp),
                 "ANSIBLE_REMOTE_TEMP": str(remote_temp),
                 "ANSIBLE_NOCOLOR": "1",
@@ -150,6 +205,25 @@ class VariableLoadingTest(unittest.TestCase):
         expected["username"] = "rbl"
         expected["dotfiles"]["dest"] = "/home/rbl/.dotfiles"
         expected["use_nvidia"] = "__MISSING__"
+        expected["optional_profiles"] = "__MISSING__"
+        expected["optional_profile_package_sets"] = "__MISSING__"
+        expected["optional_voxtype_aur_packages"] = "__MISSING__"
+        return expected
+
+    def expected_split_values(self):
+        """Build the reviewed split defaults from the immutable legacy fixture."""
+        expected = copy.deepcopy(load_mapping(LEGACY_GROUP_VARS))
+        for variable, delta in EXPECTED_PACKAGE_DELTAS.items():
+            packages = expected[variable]
+            for package in delta["remove"]:
+                self.assertIn(package, packages)
+                packages.remove(package)
+            for anchor, package in delta["insert_after"]:
+                self.assertIn(anchor, packages)
+                self.assertNotIn(package, packages)
+                packages.insert(packages.index(anchor) + 1, package)
+        expected.update(copy.deepcopy(EXPECTED_ADDED_DEFAULTS))
+        expected["use_nvidia"] = True
         return expected
 
     def assert_inventory_mode(self, snapshot, project, explicit_inventory):
@@ -162,17 +236,13 @@ class VariableLoadingTest(unittest.TestCase):
             self.assertEqual(snapshot["inventory_file"], "__IMPLICIT__")
             self.assertNotIn((project / "inventory.ini").resolve(), [Path(source).resolve() for source in sources])
 
-    def test_split_mapping_preserves_every_legacy_value_once(self):
-        legacy = load_mapping(LEGACY_GROUP_VARS)
-        expected = copy.deepcopy(legacy)
-        expected["use_nvidia"] = True
-
-        self.assertEqual(self.aggregate_split_group_vars(), expected)
+    def test_split_mapping_preserves_legacy_values_except_reviewed_package_deltas(self):
+        self.assertEqual(self.aggregate_split_group_vars(), self.expected_split_values())
         self.assertFalse((ROOT / "group_vars" / "all.yml").exists())
         self.assertEqual(load_mapping(LOCALHOST_VARS), {})
         self.assertIn("# use_nvidia: false", LOCALHOST_VARS.read_text(encoding="utf-8"))
 
-    def test_legacy_and_split_load_equivalently_with_explicit_and_implicit_localhost(self):
+    def test_legacy_and_split_load_expected_defaults_with_explicit_and_implicit_localhost(self):
         with tempfile.TemporaryDirectory(prefix="ansible-variable-loading-") as directory:
             parent = Path(directory)
             for explicit_inventory in (True, False):
@@ -187,8 +257,9 @@ class VariableLoadingTest(unittest.TestCase):
 
                 expected_legacy = self.expected_effective_legacy_values()
                 self.assertEqual(legacy["values"], expected_legacy)
-                expected_split = copy.deepcopy(expected_legacy)
-                expected_split["use_nvidia"] = True
+                expected_split = self.expected_split_values()
+                expected_split["username"] = "rbl"
+                expected_split["dotfiles"]["dest"] = "/home/rbl/.dotfiles"
                 self.assertEqual(split["values"], expected_split)
 
     def test_host_vars_override_group_scalar_list_and_boolean(self):
@@ -196,6 +267,17 @@ class VariableLoadingTest(unittest.TestCase):
             "username": "fixture-user",
             "desktop_packages": ["fixture-desktop-one", "fixture-desktop-two"],
             "use_nvidia": False,
+            "optional_profiles": {
+                "tmux_focus": True,
+                "swappy": False,
+                "media_recording": False,
+                "archive_helpers": False,
+                "mirror_tools": False,
+                "voxtype": {
+                    "enabled": False,
+                    "provider": "none",
+                },
+            },
         }
         with tempfile.TemporaryDirectory(prefix="ansible-host-overrides-") as directory:
             parent = Path(directory)
@@ -210,7 +292,8 @@ class VariableLoadingTest(unittest.TestCase):
                 self.assertEqual(values["desktop_packages"], overrides["desktop_packages"])
                 self.assertIs(values["use_nvidia"], False)
                 self.assertEqual(values["dotfiles"]["dest"], "/home/fixture-user/.dotfiles")
-                self.assertEqual(values["system_packages"], load_mapping(LEGACY_GROUP_VARS)["system_packages"])
+                self.assertEqual(values["system_packages"], self.expected_split_values()["system_packages"])
+                self.assertEqual(values["optional_profiles"], overrides["optional_profiles"])
 
 
 if __name__ == "__main__":

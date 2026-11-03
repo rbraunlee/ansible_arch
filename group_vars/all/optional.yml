@@ -1,0 +1,44 @@
+---
+# Optional helpers are intentionally opt-in. Voxtype is a default desktop
+# dependency; a host override still replaces this complete mapping, so retain
+# every key when customizing it.
+optional_profiles:
+  tmux_focus: false
+  swappy: false
+  media_recording: false
+  archive_helpers: false
+  mirror_tools: false
+  voxtype:
+    enabled: true
+    # auto resolves deterministically from the strict use_nvidia boolean:
+    # cuda when true, otherwise the stable CPU-capable provider.
+    provider: auto
+
+# Keep helper providers grouped by their explicitly selected profile.
+optional_profile_package_sets:
+  tmux_focus:
+    - tmux
+  swappy:
+    - swappy
+  media_recording:
+    - yt-dlp
+    - ffmpeg
+    - wf-recorder
+  archive_helpers:
+    - unrar
+    - unzip
+    - ncompress
+    - 7zip
+  mirror_tools:
+    - reflector
+    - rate-mirrors
+    - expac
+  voxtype:
+    - wtype
+    - pipewire-alsa
+
+optional_voxtype_aur_packages:
+  cpu:
+    - voxtype-bin
+  cuda:
+    - voxtype-cuda

@@ -1,0 +1,76 @@
+---
+- name: Validate optional profile mapping shape
+  ansible.builtin.assert:
+    that:
+      - optional_profiles is mapping
+      - >-
+        optional_profiles | dict2items | map(attribute='key') | list | sort
+        == ['archive_helpers', 'media_recording', 'mirror_tools', 'swappy', 'tmux_focus', 'voxtype']
+      - optional_profiles.voxtype is mapping
+      - >-
+        optional_profiles.voxtype | dict2items | map(attribute='key') | list | sort
+        == ['enabled', 'provider']
+    fail_msg: >-
+      optional_profiles must use the documented complete mapping; unknown or
+      missing keys are rejected.
+    quiet: true
+  tags:
+    - always
+
+- name: Validate optional profile boolean flags
+  ansible.builtin.assert:
+    that:
+      - optional_profiles.tmux_focus is boolean
+      - optional_profiles.swappy is boolean
+      - optional_profiles.media_recording is boolean
+      - optional_profiles.archive_helpers is boolean
+      - optional_profiles.mirror_tools is boolean
+      - optional_profiles.voxtype.enabled is boolean
+      - use_nvidia is boolean
+    fail_msg: Optional profile flags and use_nvidia must be YAML booleans.
+    quiet: true
+  tags:
+    - always
+
+- name: Validate Voxtype provider selection
+  ansible.builtin.assert:
+    that:
+      - optional_profiles.voxtype.provider is string
+      - optional_profiles.voxtype.provider in ['none', 'auto', 'cpu', 'cuda']
+      - optional_profiles.voxtype.enabled == (optional_profiles.voxtype.provider != 'none')
+    fail_msg: >-
+      Voxtype is disabled only with provider none; an enabled Voxtype profile
+      must select auto, cpu, or cuda.
+    quiet: true
+  tags:
+    - always
+
+- name: Require NVIDIA for the CUDA Voxtype provider
+  ansible.builtin.assert:
+    that:
+      - optional_profiles.voxtype.provider != 'cuda' or use_nvidia
+    fail_msg: 'Voxtype provider cuda requires use_nvidia: true.'
+    quiet: true
+  tags:
+    - always
+
+- name: Validate Voxtype provider package mapping
+  ansible.builtin.assert:
+    that:
+      - optional_voxtype_aur_packages is mapping
+      - >-
+        optional_voxtype_aur_packages | dict2items | map(attribute='key') | list | sort
+        == ['cpu', 'cuda']
+      - optional_voxtype_aur_packages.cpu is sequence
+      - optional_voxtype_aur_packages.cpu is not string
+      - optional_voxtype_aur_packages.cpu | length > 0
+      - optional_voxtype_aur_packages.cpu | select('string') | list | length == optional_voxtype_aur_packages.cpu | length
+      - optional_voxtype_aur_packages.cuda is sequence
+      - optional_voxtype_aur_packages.cuda is not string
+      - optional_voxtype_aur_packages.cuda | length > 0
+      - optional_voxtype_aur_packages.cuda | select('string') | list | length == optional_voxtype_aur_packages.cuda | length
+    fail_msg: >-
+      Voxtype provider packages must define non-empty CPU and CUDA string lists.
+    quiet: true
+  tags:
+    - always

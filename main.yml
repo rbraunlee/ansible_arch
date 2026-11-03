@@ -7,6 +7,12 @@
     ansible_python_interpreter: /usr/bin/python
 
   tasks:
+    - name: Validate optional profile selections
+      ansible.builtin.import_tasks: tasks/optional_validation.yml
+
+    - name: Preflight the exact dotfiles revision
+      ansible.builtin.import_tasks: tasks/optional_preflight.yml
+
     - name: Import System configurations
       ansible.builtin.import_tasks: tasks/system.yml
 
@@ -18,6 +24,9 @@
 
     - name: Import dotfiles and setup configs
       ansible.builtin.import_tasks: tasks/dotfiles.yml
+
+    - name: Install selected optional profiles
+      ansible.builtin.import_tasks: tasks/optional.yml
 
     - name: Install zap
       ansible.builtin.import_tasks: tasks/zap.yml

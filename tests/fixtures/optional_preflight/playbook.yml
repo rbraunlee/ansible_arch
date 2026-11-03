@@ -1,0 +1,35 @@
+---
+- name: Exercise ticket 10 preflight in production task order
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Enforce the optional preflight fixture safety boundary
+      ansible.builtin.assert:
+        that:
+          - ansible_run_tags | sort == ['optional']
+          - ansible_skip_tags | length == 0
+          - ansible_become is false
+          - fixture_runtime_root is defined
+          - dotfiles.dest == fixture_runtime_root + '/dotfiles'
+        fail_msg: Optional preflight fixture safety boundary violated; use the Python test runner.
+        quiet: true
+      tags:
+        - always
+
+  tasks:
+    - name: Import production optional profile validation
+      ansible.builtin.import_tasks: ../../../tasks/optional_validation.yml
+
+    - name: Import production dotfiles preflight
+      ansible.builtin.import_tasks: ../../../tasks/optional_preflight.yml
+
+    - name: Run the fail-closed system-mutation sentinel only after preflight
+      community.general.pacman:
+        name:
+          - ticket10-preflight-sentinel
+        state: present
+      become: true
+      tags:
+        - optional

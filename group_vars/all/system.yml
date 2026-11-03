@@ -12,7 +12,9 @@ system_packages:
   - rust
   - snapper
   - snap-pac
+  - pacman-contrib
   - ufw
+  - networkmanager
   - iwd
   - bluez
   - bluez-utils
