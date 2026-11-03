@@ -35,11 +35,31 @@ providers, and inconsistent `enabled` / `provider` pairs. The selections are:
 `auto` is a direct, deterministic mapping from the existing strict
 `use_nvidia` YAML boolean; it does not probe hardware. An explicit CUDA choice
 with `use_nvidia: false` is rejected before package tasks run. `voxtype-bin` is
-the Voxtype project's documented stable Arch/AUR distribution; it supplies the
-non-CUDA path used by `auto` on non-NVIDIA hosts. The package names were
-verified on 2026-11-03 with the current Voxtype upstream installation guidance
-and read-only AUR Git metadata. No package was installed or repository database
-synchronized by that verification.
+the Voxtype project's documented stable Arch/AUR distribution. The CPU profile
+installs this CPU-capable package without requesting CUDA; it does not force a
+runtime backend or undo existing GPU setup.
+
+The CUDA profile uses the separately maintained
+[`voxtype-cuda` AUR package](https://aur.archlinux.org/packages/voxtype-cuda),
+which builds Whisper with CUDA support from source. It is not one of the three
+packages listed in the upstream installation guide. On 2026-11-03, the active
+AUR RPC record reported version `1.1.0-1`, maintainer `graysky`, and no out-of-date
+flag. Its [versioned metadata](https://aur.archlinux.org/cgit/aur.git/tree/.SRCINFO?h=voxtype-cuda&id=67a503ea71805eafac3ed9375b66bf9d8c9167c1)
+declares `cuda` and `nvidia-utils` as required dependencies, plus build tools.
+The AUR transaction therefore brings in the CUDA toolkit transitively; it is
+not a missing optional runtime dependency. Building this provider can take
+substantial time and disk space. Its default CUDA architecture list does not
+cover every NVIDIA GPU, so `use_nvidia: true` alone does not establish hardware
+compatibility. Validate the selected GPU/toolkit/driver combination on the
+intended target before runtime acceptance.
+
+For comparison, `voxtype-bin` was version `1.1.1-1`, maintained by `peteonrails`,
+at AUR commit `b86700ebcaa847352cffab29e6f8332bac72f71d`. Its bundled ONNX CUDA
+variants and optional runtime requirements are different from the source-built
+Whisper CUDA provider selected here. Models and engines must match the chosen
+provider. Package metadata was read without executing recipes or install hooks;
+no package installation or database sync was performed. The isolated package
+stubs verify selection and ordering, not successful builds or GPU execution.
 
 No AI desktop client, model, account, or MCP provider is selected by these
 profiles. `tmux_focus` only makes `tmux` available; TPM setup, choosing a

@@ -31,8 +31,12 @@ headless controller or VM exercised a graphical session.
 - Voxtype provider metadata was checked on 2026-11-03 without an install or
   database sync. The [upstream installation guidance](https://voxtype.io/docs/)
   documents `voxtype-bin` as the stable AUR package; read-only AUR Git metadata
-  confirmed current `voxtype-bin` and `voxtype-cuda` repositories. The provider
-  choice below therefore remains CPU-capable when `use_nvidia: false`.
+  and active AUR RPC records confirmed `voxtype-bin` (`1.1.1-1`) and
+  `voxtype-cuda` (`1.1.0-1`). The latter is a separately maintained source build,
+  with required `cuda` and `nvidia-utils` dependencies resolved transitively.
+  See [provider evidence and runtime limits](optional-profiles.md) for exact
+  metadata revisions, build costs and hardware compatibility requirements.
+  The non-NVIDIA selection remains CPU-capable without requesting CUDA.
 
 Before system foundations, the optional-profile preflight clones and validates
 the selected rolling dotfiles revision in a temporary checkout. System
