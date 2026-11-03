@@ -44,9 +44,13 @@ class DotfilesDependencyCoverageTest(unittest.TestCase):
         for package in TOP_LEVEL_STOW_PACKAGES:
             self.assertIn(f"`{package}`", self.matrix)
 
-    def test_matrix_keeps_optional_and_hardware_requirements_out_of_ticket_nine_defaults(self):
+    def test_matrix_distinguishes_default_voxtype_from_optional_helpers(self):
         self.assertIn("Ticket #10", self.matrix)
-        self.assertIn("`voxtype-cuda`, `wtype`, and `pipewire-alsa`", self.matrix)
+        self.assertIn("`voxtype-cuda`", self.matrix)
+        self.assertIn("`voxtype-bin`", self.matrix)
+        self.assertIn("`wtype`", self.matrix)
+        self.assertIn("`pipewire-alsa`", self.matrix)
+        self.assertIn("**Default, guarded pending integration**", self.matrix)
         self.assertIn("`tmux`", self.matrix)
 
 

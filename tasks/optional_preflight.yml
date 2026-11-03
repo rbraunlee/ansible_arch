@@ -35,13 +35,13 @@
 
     - name: Inspect the versioned Hyprland optional-overlay loader
       ansible.builtin.stat:
-        path: "{{ optional_preflight_directory.path }}/checkout/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua"
+        path: "{{ optional_preflight_directory.path }}/checkout/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v2.lua"
         follow: false
       register: preflight_optional_overlay_loader_stat
 
     - name: Read the versioned Hyprland optional-overlay loader
       ansible.builtin.slurp:
-        src: "{{ optional_preflight_directory.path }}/checkout/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua"
+        src: "{{ optional_preflight_directory.path }}/checkout/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v2.lua"
       register: preflight_optional_overlay_loader
       when: preflight_optional_overlay_loader_stat.stat.exists
 
@@ -63,15 +63,23 @@
           - not (preflight_optional_overlay_loader_stat.stat.islnk | default(false))
           - >-
             (preflight_optional_overlay_loader.content | default('') | b64decode | hash('sha256'))
-            == '1db66523300e1ce90a7a2fd22155035ba0bcf07ef2645cd8f88249f89b3c9e9e'
+            == '4f8a1cf397ba28160395488d26470c16a87100cc8632ce12a4e78e80297b93c4'
           - >-
             preflight_hyprland_source is search(
-            '(?m)^local ansible_optional = dofile\(os.getenv\("HOME"\) \.\. "/\.config/hypr/ansible_arch_optional_overlay_v1\.lua"\)$')
+            '(?m)^local ansible_optional = dofile\(os.getenv\("HOME"\) \.\. "/\.config/hypr/ansible_arch_optional_overlay_v2\.lua"\)$')
           - >-
             preflight_hyprland_source is search(
             '(?s)if ansible_optional\.nvidia_environment then'
             ~ '\s+hl\.env\("LIBVA_DRIVER_NAME", "nvidia"\)'
             ~ '\s+hl\.env\("__GLX_VENDOR_LIBRARY_NAME", "nvidia"\)\s+end')
+          - >-
+            preflight_hyprland_source is search(
+            "(?s)if ansible_optional\\.voxtype_enabled then"
+            ~ "\\s+-- start is idempotent for an already active user unit; do not spawn a second daemon\\."
+            ~ "\\s+-- Use a shell so the start is conditional on importing the Wayland session first\\."
+            ~ "\\s+hl\\.exec_cmd\\(\\\"sh -c 'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY "
+            ~ "XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE && "
+            ~ "systemctl --user start voxtype\\.service'\\\"\\)\\s+end")
           - >-
             preflight_hyprland_source is search(
             '(?s)if ansible_optional\.voxtype_enabled then\s+.*'
@@ -86,12 +94,18 @@
             preflight_hyprland_source.count('voxtype record toggle') == 1
           - >-
             preflight_hyprland_source.count('hl.define_submap("voxtype_suppress"') == 1
-          - "'systemctl' not in preflight_hyprland_source"
+          - >-
+            preflight_hyprland_source.count(
+            'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE') == 1
+          - >-
+            preflight_hyprland_source.count('systemctl --user start voxtype.service') == 1
+          - "'voxtype -q daemon' not in preflight_hyprland_source"
+          - "'systemctl --user restart' not in preflight_hyprland_source"
         fail_msg: >-
           The selected dotfiles revision does not implement immutable
-          ansible_arch optional-overlay contract v1. Refusing all workstation
+          ansible_arch optional-overlay contract v2. Refusing all workstation
           changes; the dotfiles maintainer must review and apply
-          docs/hyprland-optional-overlay-v1.patch first.
+          docs/hyprland-optional-overlay-v2.patch first.
         quiet: true
   always:
     - name: Remove the isolated dotfiles preflight checkout

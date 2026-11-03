@@ -1,15 +1,17 @@
-diff --git a/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua b/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua
+diff --git a/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v2.lua b/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v2.lua
 new file mode 100644
-index 0000000..f5fc0d7
+index 0000000..b7204e6
 --- /dev/null
-+++ b/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v1.lua
-@@ -0,0 +1,24 @@
-+-- ansible_arch.hyprland_optional_overlay/v1
++++ b/linux/hypr/.config/hypr/ansible_arch_optional_overlay_v2.lua
+@@ -0,0 +1,26 @@
++-- ansible_arch.hyprland_optional_overlay/v2
 +local home = assert(os.getenv("HOME"), "HOME is required for optional overlay")
 +local overlay_path = home .. "/.config/ansible_arch/hyprland-optional.lua"
++-- No generated overlay means standalone dotfiles retain their established
++-- Voxtype startup, shortcut, and NVIDIA environment behavior.
 +local defaults = {
-+	voxtype_enabled = false,
-+	nvidia_environment = false,
++	voxtype_enabled = true,
++	nvidia_environment = true,
 +}
 +
 +local overlay_file = io.open(overlay_path, "r")
@@ -29,23 +31,28 @@ index 0000000..f5fc0d7
 +
 +return overlay
 diff --git a/linux/hypr/.config/hypr/hyprland.lua b/linux/hypr/.config/hypr/hyprland.lua
-index 7592761..4f11f71 100644
+index 7592761..d2e5c1f 100644
 --- a/linux/hypr/.config/hypr/hyprland.lua
 +++ b/linux/hypr/.config/hypr/hyprland.lua
 @@ -18,0 +19,1 @@ local screenshot = "flameshot gui"
-+local ansible_optional = dofile(os.getenv("HOME") .. "/.config/hypr/ansible_arch_optional_overlay_v1.lua")
-@@ -33,3 +34,0 @@
++local ansible_optional = dofile(os.getenv("HOME") .. "/.config/hypr/ansible_arch_optional_overlay_v2.lua")
+@@ -33,3 +34,5 @@
++if ansible_optional.voxtype_enabled then
 -	-- start is idempotent for an already active user unit; do not spawn a second daemon.
 -	-- Use a shell so the start is conditional on importing the Wayland session first.
 -	hl.exec_cmd("sh -c 'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE && systemctl --user start voxtype.service'")
-@@ -44,2 +42,4 @@
++	-- start is idempotent for an already active user unit; do not spawn a second daemon.
++	-- Use a shell so the start is conditional on importing the Wayland session first.
++	hl.exec_cmd("sh -c 'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE && systemctl --user start voxtype.service'")
++end
+@@ -44,2 +47,4 @@
 -hl.env("LIBVA_DRIVER_NAME", "nvidia")
 -hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
 +if ansible_optional.nvidia_environment then
 +	hl.env("LIBVA_DRIVER_NAME", "nvidia")
 +	hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
 +end
-@@ -165,12 +165,14 @@
+@@ -165,12 +170,14 @@
 --- Toggle local dictation; Voxtype types into whichever field has focus at output time.
 -hl.bind(mainMod .. " + CTRL + d", hl.dsp.exec_cmd("voxtype record toggle"))
 -

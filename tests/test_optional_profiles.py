@@ -20,7 +20,7 @@ FIXTURE_PLAYBOOK = FIXTURE_ROOT / "playbook.yml"
 FIXTURE_COLLECTIONS = ROOT / "tests" / "fixtures" / "optional_profiles_stub_collections"
 OVERLAY_HELPER = ROOT / "tasks" / "hyprland_optional_overlay.py"
 OVERLAY_TASK = ROOT / "tasks" / "hyprland_optional_overlay.yml"
-CONTRACT_PATCH = ROOT / "docs" / "hyprland-optional-overlay-v1.patch"
+CONTRACT_PATCH = ROOT / "docs" / "hyprland-optional-overlay-v2.patch"
 PACMAN_STUB = (
     FIXTURE_COLLECTIONS
     / "ansible_collections"
@@ -41,8 +41,8 @@ AUR_STUB = (
 )
 PACKAGE_RESULT_PATTERN = re.compile(r'"ticket10_package_stub": (\[[^]]*\])')
 AUR_RESULT_PATTERN = re.compile(r'"ticket10_aur_stub": (\[[^]]*\])')
-OVERLAY_MARKER = "ansible_arch_optional_overlay_v1"
-LOADER_SHA256 = "1db66523300e1ce90a7a2fd22155035ba0bcf07ef2645cd8f88249f89b3c9e9e"
+OVERLAY_MARKER = "ansible_arch_optional_overlay_v2"
+LOADER_SHA256 = "4f8a1cf397ba28160395488d26470c16a87100cc8632ce12a4e78e80297b93c4"
 LUA = shutil.which("lua") or shutil.which("lua5.4")
 
 DEFAULT_PROFILES = {
@@ -51,7 +51,7 @@ DEFAULT_PROFILES = {
     "media_recording": False,
     "archive_helpers": False,
     "mirror_tools": False,
-    "voxtype": {"enabled": False, "provider": "none"},
+    "voxtype": {"enabled": True, "provider": "auto"},
 }
 PACKAGE_SETS = {
     "tmux_focus": ["tmux"],
@@ -105,7 +105,7 @@ class OptionalProfilePackagesTest(unittest.TestCase):
         )
         return environment
 
-    def variables(self, case, *, profiles=None, use_nvidia=True):
+    def variables(self, case, *, profiles=None, use_nvidia=True, aur_packages=None):
         return {
             "ansible_become": False,
             "fixture_runtime_root": str(case["root"]),
@@ -114,7 +114,10 @@ class OptionalProfilePackagesTest(unittest.TestCase):
             "use_nvidia": use_nvidia,
             "optional_profiles": copy.deepcopy(profiles or DEFAULT_PROFILES),
             "optional_profile_package_sets": copy.deepcopy(PACKAGE_SETS),
-            "optional_voxtype_aur_packages": {"cuda": ["voxtype-cuda"]},
+            "optional_voxtype_aur_packages": aur_packages or {
+                "cpu": ["voxtype-bin"],
+                "cuda": ["voxtype-cuda"],
+            },
         }
 
     def assert_stub_resolution(self, case):
@@ -138,7 +141,7 @@ class OptionalProfilePackagesTest(unittest.TestCase):
             self.assertEqual(len(lines), 1, result.stdout)
             self.assertIn(str(path.resolve()), lines[0])
 
-    def run_case(self, case, *, profiles=None, use_nvidia=True, tags="optional"):
+    def run_case(self, case, *, profiles=None, use_nvidia=True, aur_packages=None, tags="optional"):
         self.assert_stub_resolution(case)
         command = [
             "ansible-playbook",
@@ -148,7 +151,11 @@ class OptionalProfilePackagesTest(unittest.TestCase):
             "--tags",
             tags,
             "--extra-vars",
-            json.dumps(self.variables(case, profiles=profiles, use_nvidia=use_nvidia)),
+            json.dumps(
+                self.variables(
+                    case, profiles=profiles, use_nvidia=use_nvidia, aur_packages=aur_packages
+                )
+            ),
             str(FIXTURE_PLAYBOOK),
         ]
         return subprocess.run(
@@ -174,19 +181,19 @@ class OptionalProfilePackagesTest(unittest.TestCase):
         self.assertEqual(self.package_calls(result.stdout), [])
         self.assertEqual(self.aur_calls(result.stdout), [])
 
-    def test_default_profile_is_opt_in_and_repeatable(self):
+    def test_default_profile_installs_nvidia_voxtype_and_is_repeatable(self):
         with tempfile.TemporaryDirectory(prefix="ansible-optional-default-") as directory:
             case = self.prepare_case(Path(directory), "default")
             first = self.run_case(case)
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-            self.assertEqual(self.package_calls(first.stdout), [])
-            self.assertEqual(self.aur_calls(first.stdout), [])
+            self.assertEqual(self.package_calls(first.stdout), [["wtype", "pipewire-alsa"]])
+            self.assertEqual(self.aur_calls(first.stdout), [["voxtype-cuda"]])
             self.assertIn("changed=0", first.stdout)
 
             second = self.run_case(case)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
-            self.assertEqual(self.package_calls(second.stdout), [])
-            self.assertEqual(self.aur_calls(second.stdout), [])
+            self.assertEqual(self.package_calls(second.stdout), [["wtype", "pipewire-alsa"]])
+            self.assertEqual(self.aur_calls(second.stdout), [["voxtype-cuda"]])
             self.assertIn("changed=0", second.stdout)
 
     def test_selected_profiles_install_only_their_grouped_providers(self):
@@ -206,12 +213,42 @@ class OptionalProfilePackagesTest(unittest.TestCase):
             self.assertEqual(self.package_calls(result.stdout), [expected_packages])
             self.assertEqual(self.aur_calls(result.stdout), [["voxtype-cuda"]])
 
+    def test_default_non_nvidia_profile_uses_the_cpu_provider(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-optional-cpu-default-") as directory:
+            case = self.prepare_case(Path(directory), "cpu-default")
+            result = self.run_case(case, use_nvidia=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.package_calls(result.stdout), [["wtype", "pipewire-alsa"]])
+            self.assertEqual(self.aur_calls(result.stdout), [["voxtype-bin"]])
+
+    def test_explicit_cpu_provider_stays_cpu_on_nvidia(self):
+        profiles = copy.deepcopy(DEFAULT_PROFILES)
+        profiles["voxtype"] = {"enabled": True, "provider": "cpu"}
+        with tempfile.TemporaryDirectory(prefix="ansible-optional-cpu-explicit-") as directory:
+            case = self.prepare_case(Path(directory), "cpu-explicit")
+            result = self.run_case(case, profiles=profiles, use_nvidia=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.package_calls(result.stdout), [["wtype", "pipewire-alsa"]])
+            self.assertEqual(self.aur_calls(result.stdout), [["voxtype-bin"]])
+
+    def test_explicit_voxtype_disable_skips_its_packages(self):
+        profiles = copy.deepcopy(DEFAULT_PROFILES)
+        profiles["voxtype"] = {"enabled": False, "provider": "none"}
+        with tempfile.TemporaryDirectory(prefix="ansible-optional-disabled-") as directory:
+            case = self.prepare_case(Path(directory), "disabled")
+            result = self.run_case(case, profiles=profiles)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(self.package_calls(result.stdout), [])
+            self.assertEqual(self.aur_calls(result.stdout), [])
+
     def test_invalid_profiles_fail_before_package_mutation(self):
         invalid_cases = {
             "string-flag": {**DEFAULT_PROFILES, "tmux_focus": "true"},
             "unknown-key": {**DEFAULT_PROFILES, "unknown": False},
             "enabled-none": {**DEFAULT_PROFILES, "voxtype": {"enabled": True, "provider": "none"}},
             "disabled-cuda": {**DEFAULT_PROFILES, "voxtype": {"enabled": False, "provider": "cuda"}},
+            "disabled-auto": {**DEFAULT_PROFILES, "voxtype": {"enabled": False, "provider": "auto"}},
+            "unknown-provider": {**DEFAULT_PROFILES, "voxtype": {"enabled": True, "provider": "rocm"}},
         }
         with tempfile.TemporaryDirectory(prefix="ansible-optional-invalid-") as directory:
             parent = Path(directory)
@@ -219,6 +256,14 @@ class OptionalProfilePackagesTest(unittest.TestCase):
                 with self.subTest(label=label):
                     case = self.prepare_case(parent, label)
                     self.assert_safe_failure(self.run_case(case, profiles=profiles), "Optional")
+
+    def test_invalid_provider_package_mapping_fails_before_package_mutation(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-optional-invalid-provider-map-") as directory:
+            case = self.prepare_case(Path(directory), "invalid-provider-map")
+            self.assert_safe_failure(
+                self.run_case(case, aur_packages={"cuda": ["voxtype-cuda"]}),
+                "Voxtype provider packages",
+            )
 
     def test_cuda_profile_rejects_non_nvidia_before_package_mutation(self):
         profiles = copy.deepcopy(DEFAULT_PROFILES)
@@ -327,6 +372,33 @@ class CanonicalOverlayHelperTest(unittest.TestCase):
             self.assertTrue(json.loads(check.stdout)["changed"])
             self.assertFalse((new_home / ".config").exists())
 
+    def test_prior_managed_marker_migrates_to_v2_but_embedded_marker_does_not(self):
+        with tempfile.TemporaryDirectory(prefix="ansible-overlay-migration-") as directory:
+            root = Path(directory)
+            home = root / "home" / self.username
+            overlay = home / ".config" / "ansible_arch" / "hyprland-optional.lua"
+            overlay.parent.mkdir(parents=True)
+            overlay.write_text(
+                "-- ansible_arch_optional_overlay_v1\n"
+                "return { voxtype_enabled = false, nvidia_environment = false }\n",
+                encoding="utf-8",
+            )
+            migrated = self.run_helper(home, voxtype=True, nvidia=True)
+            self.assertEqual(migrated.returncode, 0, migrated.stdout + migrated.stderr)
+            payload = overlay.read_text(encoding="utf-8")
+            self.assertTrue(payload.startswith("-- " + OVERLAY_MARKER + "\n"))
+            self.assertIn("voxtype_enabled = true", payload)
+
+            overlay.write_text(
+                "-- owner content\n-- ansible_arch_optional_overlay_v1\n"
+                "return { voxtype_enabled = false, nvidia_environment = false }\n",
+                encoding="utf-8",
+            )
+            preserved = self.run_helper(home)
+            self.assertNotEqual(preserved.returncode, 0)
+            self.assertIn("unowned optional overlay", preserved.stderr)
+            self.assertTrue(overlay.read_text(encoding="utf-8").startswith("-- owner content\n"))
+
     def test_noncanonical_home_is_rejected_outside_the_isolated_test_mode(self):
         with tempfile.TemporaryDirectory(prefix="ansible-overlay-canonical-reject-") as directory:
             home = Path(directory) / "home" / self.username
@@ -403,7 +475,7 @@ class HyprlandContractPatchTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        loader = source.with_name("ansible_arch_optional_overlay_v1.lua")
+        loader = source.with_name("ansible_arch_optional_overlay_v2.lua")
         self.assertEqual(hashlib.sha256(loader.read_bytes()).hexdigest(), LOADER_SHA256)
         return source, loader
 
@@ -448,14 +520,25 @@ dofile(arg[1])
                 check=False,
             )
 
-    def test_exact_patch_absent_overlay_disables_nvidia_and_voxtype(self):
+    def assert_guarded_start(self, output):
+        startup = "EXEC:sh -c 'systemctl --user import-environment"
+        self.assertEqual(output.count("systemctl --user start voxtype.service"), 1)
+        self.assertIn(startup, output)
+        self.assertLess(
+            output.index("systemctl --user import-environment"),
+            output.index("systemctl --user start voxtype.service"),
+        )
+        self.assertNotIn("voxtype -q daemon", output)
+        self.assertNotIn("systemctl --user restart", output)
+
+    def test_exact_patch_absent_overlay_preserves_standalone_defaults(self):
         result = self.run_patched_config()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("ENV:LIBVA_DRIVER_NAME=nvidia", result.stdout)
-        self.assertNotIn("ENV:__GLX_VENDOR_LIBRARY_NAME=nvidia", result.stdout)
-        self.assertNotIn("BIND:SUPER + CTRL + d", result.stdout)
-        self.assertNotIn("SUBMAP:voxtype_suppress", result.stdout)
-        self.assertNotIn("systemctl", result.stdout)
+        self.assertIn("ENV:LIBVA_DRIVER_NAME=nvidia", result.stdout)
+        self.assertIn("ENV:__GLX_VENDOR_LIBRARY_NAME=nvidia", result.stdout)
+        self.assertIn("BIND:SUPER + CTRL + d", result.stdout)
+        self.assertIn("SUBMAP:voxtype_suppress", result.stdout)
+        self.assert_guarded_start(result.stdout)
 
     def test_exact_patch_true_and_false_overlays_gate_runtime_behavior(self):
         enabled = self.run_patched_config(
@@ -466,7 +549,7 @@ dofile(arg[1])
         self.assertIn("ENV:__GLX_VENDOR_LIBRARY_NAME=nvidia", enabled.stdout)
         self.assertIn("BIND:SUPER + CTRL + d", enabled.stdout)
         self.assertIn("SUBMAP:voxtype_suppress", enabled.stdout)
-        self.assertNotIn("systemctl", enabled.stdout)
+        self.assert_guarded_start(enabled.stdout)
 
         disabled = self.run_patched_config(
             overlay="return { voxtype_enabled = false, nvidia_environment = false }\n"
@@ -475,6 +558,7 @@ dofile(arg[1])
         self.assertNotIn("ENV:LIBVA_DRIVER_NAME=nvidia", disabled.stdout)
         self.assertNotIn("BIND:SUPER + CTRL + d", disabled.stdout)
         self.assertNotIn("SUBMAP:voxtype_suppress", disabled.stdout)
+        self.assertNotIn("systemctl", disabled.stdout)
 
     def test_exact_patch_rejects_malformed_overlay_under_nondefault_xdg(self):
         result = self.run_patched_config(

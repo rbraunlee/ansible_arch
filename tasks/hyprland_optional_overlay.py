@@ -18,7 +18,8 @@ import stat
 import sys
 
 
-MARKER = "-- ansible_arch_optional_overlay_v1"
+MARKER = "-- ansible_arch_optional_overlay_v2"
+LEGACY_MARKER = "-- ansible_arch_optional_overlay_v1"
 OVERLAY_COMPONENTS = (".config", "ansible_arch", "hyprland-optional.lua")
 
 
@@ -194,7 +195,10 @@ def run(arguments):
                 return {"changed": True, "path": str(PurePosixPath(arguments.home, *OVERLAY_COMPONENTS))}
             try:
                 existing = read_existing(overlay_dir_fd, account.pw_uid)
-                if existing is not None and MARKER.encode("utf-8") not in existing:
+                if existing is not None and not any(
+                    existing.startswith((marker + "\n").encode("utf-8"))
+                    for marker in (MARKER, LEGACY_MARKER)
+                ):
                     raise OverlayError("refusing to replace an unowned optional overlay")
                 changed = existing != payload
                 if changed and not arguments.check:

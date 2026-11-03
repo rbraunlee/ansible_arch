@@ -65,8 +65,8 @@ EXPECTED_ADDED_DEFAULTS = {
         "archive_helpers": False,
         "mirror_tools": False,
         "voxtype": {
-            "enabled": False,
-            "provider": "none",
+            "enabled": True,
+            "provider": "auto",
         },
     },
     "optional_profile_package_sets": {
@@ -78,6 +78,7 @@ EXPECTED_ADDED_DEFAULTS = {
         "voxtype": ["wtype", "pipewire-alsa"],
     },
     "optional_voxtype_aur_packages": {
+        "cpu": ["voxtype-bin"],
         "cuda": ["voxtype-cuda"],
     },
 }

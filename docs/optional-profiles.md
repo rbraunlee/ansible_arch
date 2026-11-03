@@ -1,68 +1,84 @@
-# Optional profiles
+# Optional profiles and default Voxtype
 
-Optional tools are deliberately opt-in. `optional.yml` supplies a complete
-`optional_profiles` mapping whose default selects no optional package or
-Voxtype provider. A host override replaces that whole mapping, so retain every
-key rather than relying on a partial merge:
+The helper profiles remain deliberately opt-in. Voxtype is the exception: the
+default mapping enables it because the owner selected Voxtype and its typing /
+audio prerequisites as desktop defaults. A host override replaces the complete
+mapping, so retain every key rather than relying on a partial merge:
 
 ```yaml
 optional_profiles:
-  tmux_focus: true
+  tmux_focus: false
   swappy: false
   media_recording: false
   archive_helpers: false
   mirror_tools: false
   voxtype:
     enabled: true
-    provider: cuda
+    provider: auto
 ```
 
-The profile validation rejects missing or unknown keys, non-boolean flags, an
-unknown provider, and an inconsistent `enabled`/`provider` pair. The supported
-selections are:
+The validation rejects missing or unknown keys, non-boolean flags, unknown
+providers, and inconsistent `enabled` / `provider` pairs. The selections are:
 
-| Profile | Packages selected only when true |
+| Profile | Selection and packages |
 | --- | --- |
-| `tmux_focus` | `tmux` |
-| `swappy` | `swappy` |
-| `media_recording` | `yt-dlp`, `ffmpeg`, `wf-recorder` |
-| `archive_helpers` | `unrar`, `unzip`, `ncompress`, `7zip` |
-| `mirror_tools` | `reflector`, `rate-mirrors`, `expac` |
-| `voxtype` with `provider: cuda` | Official: `wtype`, `pipewire-alsa`; AUR: `voxtype-cuda` |
+| `tmux_focus` | Opt-in: `tmux` |
+| `swappy` | Opt-in: `swappy` |
+| `media_recording` | Opt-in: `yt-dlp`, `ffmpeg`, `wf-recorder` |
+| `archive_helpers` | Opt-in: `unrar`, `unzip`, `ncompress`, `7zip` |
+| `mirror_tools` | Opt-in: `reflector`, `rate-mirrors`, `expac` |
+| `voxtype`, `provider: auto` | Default: `wtype`, `pipewire-alsa`, then `voxtype-cuda` when `use_nvidia: true` or `voxtype-bin` when false |
+| `voxtype`, `provider: cpu` | `wtype`, `pipewire-alsa`, `voxtype-bin` |
+| `voxtype`, `provider: cuda` | `wtype`, `pipewire-alsa`, `voxtype-cuda`; requires `use_nvidia: true` |
+| `voxtype`, `enabled: false`, `provider: none` | Explicitly installs no Voxtype packages |
+
+`auto` is a direct, deterministic mapping from the existing strict
+`use_nvidia` YAML boolean; it does not probe hardware. An explicit CUDA choice
+with `use_nvidia: false` is rejected before package tasks run. `voxtype-bin` is
+the Voxtype project's documented stable Arch/AUR distribution; it supplies the
+non-CUDA path used by `auto` on non-NVIDIA hosts. The package names were
+verified on 2026-11-03 with the current Voxtype upstream installation guidance
+and read-only AUR Git metadata. No package was installed or repository database
+synchronized by that verification.
 
 No AI desktop client, model, account, or MCP provider is selected by these
-profiles. Install and authenticate those clients manually if wanted.
-`tmux_focus` only makes `tmux` available; TPM setup, choosing a project, and
-invoking the Stowed `focus` helper remain manual.
+profiles. `tmux_focus` only makes `tmux` available; TPM setup, choosing a
+project, and invoking the Stowed `focus` helper remain manual.
 
 ## Voxtype rules and manual prerequisites
 
-`voxtype.enabled: true` requires `provider: cuda`; `provider: cuda` requires
-`use_nvidia: true`. `enabled: false` requires `provider: none`. The playbook
-installs neither a model nor credentials and does not discover a microphone,
-choose an audio backend, enable/start/restart a user service, reload Hyprland,
-or run a dictation test. Those steps require an owner-approved, suitable
-Wayland/PipeWire/NVIDIA host and remain manual.
+An enabled Voxtype mapping selects `auto`, `cpu`, or `cuda`; a disabled mapping
+must use `none`. The playbook does not download `large-v3-turbo` or any other
+model, provide credentials, discover a microphone, choose a backend, or run a
+dictation test. Model acquisition, microphone/PipeWire QA, backend setup, and
+provider compatibility require an owner-approved suitable host and remain
+manual.
 
-The generated overlay only controls the next Hyprland configuration load after
-the upstream contract below is adopted. Disabling the profile does not uninstall
-`voxtype-cuda`, remove models or runtime state, stop/disable an already enabled
-`voxtype.service`, or alter an existing graphical session. Similarly,
-`use_nvidia: false` prevents the contract from adding the NVIDIA Hyprland
-environment values on a subsequent session; it does not undo environment
-values already inherited by a running session or migrate installed drivers.
+The generated overlay changes the next Hyprland configuration load only. When
+Voxtype is enabled, that next normal Hyprland session imports the allowlisted
+Wayland session variables and performs the existing idempotent
+`systemctl --user start voxtype.service`; Ansible itself neither starts nor
+restarts the service and does not alter an already running graphical session.
+When disabled, the next configuration load contains no Voxtype service-start
+call, shortcut, or suppression submap. Disabling also does not uninstall a
+provider, remove models/runtime state, or stop/disable an already active user
+service.
+
+`use_nvidia: false` makes the generated overlay omit the two NVIDIA Hyprland
+environment values on a subsequent session. It does not undo environment values
+already inherited by a running session or migrate installed drivers.
 
 ## Guarded Hyprland contract
 
-The single canonical path is
+The single canonical overlay path is
 `/home/<username>/.config/ansible_arch/hyprland-optional.lua`; it does not use
 `XDG_CONFIG_HOME` and is not configurable through host variables. The versioned
 Lua loader uses that same `HOME` path. The Ansible helper traverses the home,
 `.config`, and `ansible_arch` components through non-symlink directory
 descriptors, checks ownership, and atomically replaces only the regular leaf.
-It preserves an existing file without its fixed Ansible marker. A marked
-generated file is reconciled on a repeat run; change profile variables instead
-of editing it.
+It preserves an existing unmarked file. It recognizes the prior fixed v1 marker
+only to migrate an already managed overlay to v2; change profile variables
+instead of editing a generated file.
 
 This prevents a checked ancestor symlink from redirecting the helper's write.
 It is not a promise against a malicious same-user process replacing paths before
@@ -74,39 +90,43 @@ unconditionally starts `voxtype.service` plus unconditionally sets NVIDIA
 environment variables. Before any system, desktop, AUR, firewall, or service
 task, the playbook clones the selected rolling dotfiles revision into a
 configured-user temporary checkout. It verifies the exact SHA-256 of the
-versioned `ansible_arch_optional_overlay_v1.lua` loader and the required real
-Hyprland gates, then deploys that same Git revision to `dotfiles.dest`. A later
-remote update therefore cannot race the checked source within the run; the next
-run selects a new rolling revision and validates it again.
+immutable `ansible_arch_optional_overlay_v2.lua` loader, the real NVIDIA and
+Voxtype binding gates, and the one bounded startup command inside the Voxtype
+gate. It then deploys that same Git revision to `dotfiles.dest`. A later remote
+update therefore cannot race the checked source within the run; the next run
+selects and validates a new rolling revision.
 
-If the contract is absent, changed, incomplete, or contains any `systemctl`
-call, the preflight fails before workstation mutations and removes its temporary
-checkout. It never patches or dirties the rolling clone. The dotfiles maintainer
-must review and apply [the versioned patch](hyprland-optional-overlay-v1.patch)
-in the dotfiles repository first. This repository does not publish that
-second-repository change. The temporary preflight still runs in Ansible check
-mode so check mode cannot report a source it did not validate.
+If the contract is absent, changed, incomplete, uses a raw daemon or a service
+restart, or moves the startup command outside its guard, the preflight fails
+before workstation mutations and removes its temporary checkout. It never
+patches or dirties the rolling clone. The dotfiles maintainer must review and
+apply [the versioned patch](hyprland-optional-overlay-v2.patch) in the dotfiles
+repository first. This repository does not publish that second-repository
+change. The temporary preflight still runs in Ansible check mode so check mode
+cannot report a source it did not validate.
 
-The patch defaults both controls to false when the generated overlay is absent,
-never starts `voxtype.service`, gates the Voxtype shortcut/submap, and gates the
-NVIDIA environment variables. Once accepted upstream, the generated overlay
-sets `voxtype_enabled` from `optional_profiles.voxtype.enabled` and
-`nvidia_environment` from `use_nvidia`. The patch and loader are fixture-tested
-with a stub Hyprland Lua API for absent, enabled, disabled, malformed, and
+The v2 patch deliberately gives an absent generated overlay `true` defaults for
+both Voxtype and NVIDIA behavior. Thus a standalone dotfiles checkout that has
+not adopted Ansible's generated overlay preserves its current upstream startup,
+shortcut, and NVIDIA workflow. A generated false overlay is distinct: it
+explicitly disables the startup, shortcut/submap, and NVIDIA values. Malformed
+overlays fail configuration loading. The exact patch and loader execute in a
+fixture with a stub Hyprland Lua API for absent, true, false, malformed, and
 non-default-XDG cases; this is still not a real graphical session.
 
 This is source-level and fixture-tested coverage, not runtime acceptance. An
-authorized fresh-host/graphical-session gate must separately validate package
-resolution, provider compatibility, microphone/backend/model setup, any chosen
-user-service lifecycle, and actual dictation/desktop behavior.
+authorized fresh-host / graphical-session gate must separately validate package
+resolution, CPU/CUDA provider compatibility, model and microphone/backend
+setup, the user-service lifecycle, and actual dictation/desktop behavior.
 
 ## Tagged updates
 
 After a full deployment has established the system/AUR prerequisites and Stow
-links, `--tags optional` validates and checks out the selected dotfiles revision,
-updates the overlay, and installs selected optional packages. `--tags dotfiles`
-selects the checkout and overlay tasks only; it is not a complete Stow deployment.
-Both retain the always-tagged preflight. Neither tagged path establishes the
-base system, `aur_builder`, Paru, or Stow links on a fresh host; use the full
-playbook for initial provisioning. Full host application remains separately
-authorized; these commands are not routine controller checks.
+links, `--tags optional` validates and checks out the selected dotfiles
+revision, updates the overlay, and installs Voxtype plus any selected helper
+packages. `--tags dotfiles` selects the checkout and overlay tasks only; it is
+not a complete Stow deployment. Both retain the always-tagged preflight.
+Neither tagged path establishes the base system, `aur_builder`, Paru, or Stow
+links on a fresh host; use the full playbook for initial provisioning. Full host
+application remains separately authorized; these commands are not routine
+controller checks.

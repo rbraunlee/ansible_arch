@@ -16,7 +16,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "main.yml"
 PREFLIGHT_TASKS = ROOT / "tasks" / "optional_preflight.yml"
-PATCH = ROOT / "docs" / "hyprland-optional-overlay-v1.patch"
+DOTFILES_TASKS = ROOT / "tasks" / "dotfiles.yml"
+PATCH = ROOT / "docs" / "hyprland-optional-overlay-v2.patch"
 FIXTURE = ROOT / "tests" / "fixtures" / "optional_preflight" / "playbook.yml"
 COLLECTIONS = ROOT / "tests" / "fixtures" / "optional_preflight_stub_collections"
 SENTINEL = "TICKET10_POST_PREFLIGHT_MUTATION_SENTINEL_REACHED"
@@ -27,7 +28,7 @@ DEFAULT_PROFILES = {
     "media_recording": False,
     "archive_helpers": False,
     "mirror_tools": False,
-    "voxtype": {"enabled": False, "provider": "none"},
+    "voxtype": {"enabled": True, "provider": "auto"},
 }
 
 
@@ -100,14 +101,21 @@ class OptionalPreflightTest(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(applied.returncode, 0, applied.stdout + applied.stderr)
-            if state == "drift":
-                loader = source.with_name("ansible_arch_optional_overlay_v1.lua")
-                loader.write_text("return { voxtype_enabled = false, nvidia_environment = false }\n", encoding="utf-8")
-            elif state == "incomplete":
+            if state in ("drift", "fake-loader"):
+                loader = source.with_name("ansible_arch_optional_overlay_v2.lua")
+                loader.write_text(
+                    "-- ansible_arch.hyprland_optional_overlay/v2\n"
+                    "return { voxtype_enabled = true, nvidia_environment = true }\n",
+                    encoding="utf-8",
+                )
+            elif state in ("incomplete", "comment-only"):
                 source.write_text(
-                    '-- local ansible_optional = dofile(os.getenv("HOME") .. "/.config/hypr/ansible_arch_optional_overlay_v1.lua")\n'
+                    '-- local ansible_optional = dofile(os.getenv("HOME") .. "/.config/hypr/ansible_arch_optional_overlay_v2.lua")\n'
                     '-- if ansible_optional.nvidia_environment then hl.env("LIBVA_DRIVER_NAME", "nvidia") end\n'
-                    '-- if ansible_optional.voxtype_enabled then hl.bind("fake", "voxtype record toggle") end\n',
+                    '-- if ansible_optional.voxtype_enabled then\n'
+                    '--   hl.exec_cmd("sh -c \'systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE && systemctl --user start voxtype.service\'")\n'
+                    '--   hl.bind("fake", "voxtype record toggle")\n'
+                    '-- end\n',
                     encoding="utf-8",
                 )
 
@@ -164,6 +172,10 @@ class OptionalPreflightTest(unittest.TestCase):
                 "subdirs": ["common", "linux"],
             },
             "optional_profiles": copy.deepcopy(DEFAULT_PROFILES),
+            "optional_voxtype_aur_packages": {
+                "cpu": ["voxtype-bin"],
+                "cuda": ["voxtype-cuda"],
+            },
         }
         return subprocess.run(
             [
@@ -185,6 +197,19 @@ class OptionalPreflightTest(unittest.TestCase):
         preflight = yaml.safe_load(PREFLIGHT_TASKS.read_text(encoding="utf-8"))
         self.assertEqual(preflight[0]["tags"], ["always"])
         self.assertEqual(preflight[1]["tags"], ["always"])
+
+    def test_deployment_uses_the_exact_preflight_revision(self):
+        tasks = yaml.safe_load(DOTFILES_TASKS.read_text(encoding="utf-8"))
+        checkout = next(task for task in tasks if task["name"] == "Clone dotfiles repository")
+        self.assertEqual(checkout["ansible.builtin.git"]["version"], "{{ preflight_dotfiles_revision }}")
+        overlay_guard = next(
+            task for task in yaml.safe_load(
+                (ROOT / "tasks" / "hyprland_optional_overlay.yml").read_text(encoding="utf-8")
+            )
+            if task["name"] == "Require the checked dotfiles revision before rendering the overlay"
+        )
+        self.assertIn("preflight_dotfiles_revision", str(overlay_guard))
+        self.assertIn("dotfiles_checkout", str(overlay_guard))
 
     def test_real_main_tag_selection_keeps_checkout_before_overlay(self):
         # List the actual production play without executing it. In particular,
@@ -220,14 +245,14 @@ class OptionalPreflightTest(unittest.TestCase):
                     self.assertNotIn("Perform a full system update", output)
                     self.assertNotIn("Symlink dotfiles using Stow", output)
                     if tags == "optional":
-                        self.assertLess(render, output.index("Install selected opt-in official packages"))
+                        self.assertLess(render, output.index("Install selected helper and Voxtype official packages"))
                     else:
-                        self.assertNotIn("Install selected opt-in official packages", output)
+                        self.assertNotIn("Install selected helper and Voxtype official packages", output)
 
     def test_missing_or_drifted_contract_stops_before_fail_closed_mutation_sentinel(self):
         with tempfile.TemporaryDirectory(prefix="ansible-optional-preflight-") as directory:
             parent = Path(directory)
-            for state in ("missing", "drift", "incomplete"):
+            for state in ("missing", "drift", "fake-loader", "incomplete", "comment-only"):
                 with self.subTest(state=state):
                     root = parent / state
                     root.mkdir()

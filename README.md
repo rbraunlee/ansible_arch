@@ -32,8 +32,9 @@ NetworkManager, desktop, editor, update-helper, and font dependencies, replacing
 the obsolete `ttf-font-awesome` identifier; the full source-level rationale is
 in [the dotfiles dependency matrix](docs/dotfiles-dependency-coverage.md).
 `use_nvidia` remains a YAML boolean and defaults to `true`.
-Optional helper and Voxtype profiles are opt-in; see
-[optional profiles](docs/optional-profiles.md) before selecting one.
+Optional helpers are opt-in. Voxtype and its typing/audio prerequisites are
+enabled by default, with a documented explicit off switch and deterministic
+CPU/CUDA provider selection; see [optional profiles](docs/optional-profiles.md).
 
 Put machine-specific values in `host_vars/localhost.yml`. It is an empty mapping
 with commented examples in the repository. Use normal nested YAML mappings;

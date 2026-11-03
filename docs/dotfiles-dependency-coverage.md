@@ -28,6 +28,11 @@ headless controller or VM exercised a graphical session.
   `ttf-font-awesome` is not retained: its old package URL redirects to the
   WOFF2 split package, whereas `otf-font-awesome` is the current installed-font
   split appropriate for the Waybar font provider.
+- Voxtype provider metadata was checked on 2026-11-03 without an install or
+  database sync. The [upstream installation guidance](https://voxtype.io/docs/)
+  documents `voxtype-bin` as the stable AUR package; read-only AUR Git metadata
+  confirmed current `voxtype-bin` and `voxtype-cuda` repositories. The provider
+  choice below therefore remains CPU-capable when `use_nvidia: false`.
 
 Before system foundations, the optional-profile preflight clones and validates
 the selected rolling dotfiles revision in a temporary checkout. System
@@ -70,7 +75,7 @@ desired defaults.
 | `linux/bash` | `linux/bash/.bashrc` | **External bootstrap**: Bash comes from the Arch base. Its `nvim` and `rg` aliases use the direct defaults; legacy aliases remain **optional/manual** rather than defaults. |
 | `linux/hypr` | `linux/hypr/.config/hypr/hyprland.lua`, `start-hypridle.sh`, `hypridle.conf` | **Direct default**: `hyprland`, `hyprpaper`, `waybar`, `mako`, `flameshot`, `wofi`, portals, clipboard tools, `hypridle`, `hyprlock`, and `dolphin`. `NetworkManager` is directly installed with system foundations for its enabled service; `pgrep` is from the base system. Idle/lock behavior needs an authorized graphical-session gate. |
 | `linux/swappy` | `linux/swappy/.config/swappy/config` | **Optional/manual**: install `swappy` only if this screenshot editor is selected. |
-| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Guarded pending integration**: Ticket #10 makes `voxtype-cuda`, `wtype`, and `pipewire-alsa` opt-in for the CUDA choice and validates NVIDIA selection. The current upstream source still autostarts Voxtype, so a temporary revision-pinned preflight fails before any workstation mutation until its maintainer adopts the reviewed external-overlay contract. Backend/model acquisition, microphone selection, and user-service adoption stay **manual**. |
+| `linux/voxtype` | `linux/voxtype/.config/systemd/user/voxtype.service`, `config.toml`, README | **Default, guarded pending integration**: Ticket #10 defaults `wtype` and `pipewire-alsa`, then selects `voxtype-cuda` for `use_nvidia: true` or CPU-capable `voxtype-bin` for false. Explicit `enabled: false` / `provider: none` remains available; helpers remain opt-in. The current upstream source still autostarts Voxtype, so a temporary revision-pinned preflight fails before any workstation mutation until its maintainer adopts the reviewed external-overlay contract. Backend/model acquisition, microphone selection, and user-service QA stay **manual**. |
 | `linux/waybar` | `linux/waybar/.config/waybar/config.jsonc`, `scripts/update-sys.sh`, `style.css` | **Direct default**: `waybar`, `pacman-contrib` for `checkupdates`, `hyprlock`, `otf-font-awesome`, and `otf-comicshanns-nerd` for the configured ComicShanns face. `playerctl` is **transitive default** through Waybar. `paru` is supplied by the existing AUR task. |
 | `linux/wofi` | `linux/wofi/.config/wofi/` | **Direct default**: `wofi`; its generic monospace choice needs no additional font package. |
 | `linux/zsh` | `linux/zsh/.zshrc` | **Direct default**: `zsh` and `starship`; it shares the common Zsh providers. |
@@ -85,12 +90,13 @@ No optional profile, Voxtype/NVIDIA environment treatment, dotfiles mutation, or
 runtime validation is part of this change.
 
 The default package additions above are covered at source level. Ticket #10
-adds only opt-in helper/profile packages and a guarded Hyprland contract; it
-does not declare the current upstream Voxtype autostart or NVIDIA-specific
-environment settings resolved. Until the dotfiles maintainer adopts the
-reviewable contract, this playbook fails before any workstation mutation rather
-than silently deploying that source. Other optional and manual prerequisites
-remain as listed in the matrix.
+keeps helper profiles opt-in but makes Voxtype's `wtype`, `pipewire-alsa`, and
+deterministically selected CPU/CUDA provider default dependencies. It does not
+declare the current upstream Voxtype autostart or NVIDIA-specific environment
+settings resolved. Until the dotfiles maintainer adopts the reviewable v2
+contract, this playbook fails before any workstation mutation rather than
+silently deploying that source. Other optional and manual prerequisites remain
+as listed in the matrix.
 
 ## Runtime acceptance gate — separate authorization required
 
