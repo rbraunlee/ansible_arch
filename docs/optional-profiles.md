@@ -99,3 +99,14 @@ This is source-level and fixture-tested coverage, not runtime acceptance. An
 authorized fresh-host/graphical-session gate must separately validate package
 resolution, provider compatibility, microphone/backend/model setup, any chosen
 user-service lifecycle, and actual dictation/desktop behavior.
+
+## Tagged updates
+
+After a full deployment has established the system/AUR prerequisites and Stow
+links, `--tags optional` validates and checks out the selected dotfiles revision,
+updates the overlay, and installs selected optional packages. `--tags dotfiles`
+selects the checkout and overlay tasks only; it is not a complete Stow deployment.
+Both retain the always-tagged preflight. Neither tagged path establishes the
+base system, `aur_builder`, Paru, or Stow links on a fresh host; use the full
+playbook for initial provisioning. Full host application remains separately
+authorized; these commands are not routine controller checks.

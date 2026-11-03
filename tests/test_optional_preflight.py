@@ -186,6 +186,44 @@ class OptionalPreflightTest(unittest.TestCase):
         self.assertEqual(preflight[0]["tags"], ["always"])
         self.assertEqual(preflight[1]["tags"], ["always"])
 
+    def test_real_main_tag_selection_keeps_checkout_before_overlay(self):
+        # List the actual production play without executing it. In particular,
+        # this never runs main.yml in check mode or touches a workstation path.
+        with tempfile.TemporaryDirectory(prefix="ansible-main-tag-selection-") as directory:
+            root = Path(directory)
+            environment = self.environment(root)
+            collections = root / "collections"
+            shutil.copytree(ROOT / "tests/fixtures/optional_profiles_stub_collections", collections)
+            # A collection is resolved as a unit; merge the parse-only UFW stub
+            # into the same temporary community.general collection.
+            shutil.copy2(
+                ROOT / "tests/fixtures/nvidia_gating_stub_collections/ansible_collections"
+                / "community/general/plugins/modules/ufw.py",
+                collections / "ansible_collections/community/general/plugins/modules/ufw.py",
+            )
+            environment["ANSIBLE_COLLECTIONS_PATH"] = str(collections)
+            for tags in ("optional", "dotfiles"):
+                with self.subTest(tags=tags):
+                    result = subprocess.run(
+                        ["ansible-playbook", "-i", str(ROOT / "inventory.ini"),
+                         str(MAIN), "--list-tasks", "--tags", tags],
+                        cwd=root, env=environment, capture_output=True,
+                        text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    output = result.stdout
+                    checkout = output.index("Clone dotfiles repository")
+                    guard = output.index("Require the checked dotfiles revision")
+                    render = output.index("Render the canonical Hyprland optional overlay")
+                    self.assertLess(checkout, guard)
+                    self.assertLess(guard, render)
+                    self.assertNotIn("Perform a full system update", output)
+                    self.assertNotIn("Symlink dotfiles using Stow", output)
+                    if tags == "optional":
+                        self.assertLess(render, output.index("Install selected opt-in official packages"))
+                    else:
+                        self.assertNotIn("Install selected opt-in official packages", output)
+
     def test_missing_or_drifted_contract_stops_before_fail_closed_mutation_sentinel(self):
         with tempfile.TemporaryDirectory(prefix="ansible-optional-preflight-") as directory:
             parent = Path(directory)
